@@ -1,34 +1,112 @@
 /**
- * @meta-ads-agent/core
+ * @module @meta-ads-agent/core
+ * Public API for the meta-ads-agent core package.
  *
- * The central package of meta-ads-agent. Contains:
+ * Re-exports all public types, classes, interfaces, and functions from
+ * the core modules: agent loop, tool system, LLM adapters, decision engine,
+ * database, audit logging, and configuration.
  *
- * - **Agent Loop** (`./agent/loop.ts`): Stateless OODA-cycle core function.
- *   Given state, tools, and an LLM provider, returns a list of actions.
- *   Wrapped by Agent (state management) and AgentSession (lifecycle, retry).
- *
- * - **Tool System** (`./tools/`): TypeBox-schema'd factory-function tools.
- *   Each tool is a plain object with name, description, parameters (TypeBox),
- *   and an async execute() method. Registered in a Map-based ToolRegistry.
- *
- * - **LLM Adapters** (`./llm/`): Pluggable LLMProvider interface with
- *   stream() and streamSimple() methods. EventStream<T,R> primitive supports
- *   async iteration and promise-based result extraction. Concrete providers:
- *   ClaudeProvider (Anthropic SDK), OpenAIProvider (OpenAI SDK).
- *
- * - **Decision Engine** (`./decision/`): Scores and ranks action proposals
- *   by (expected_impact * confidence) / risk. Enforces guardrails: budget
- *   floors, max scale factors, cool-down periods, prohibited actions.
- *
- * - **Database** (`./db/`): Drizzle ORM with dual-mode support — SQLite
- *   (better-sqlite3) for local, PostgreSQL (pg) for cloud. Selected via
- *   DATABASE_MODE env var. Includes agent_decisions audit table (append-only).
- *
- * - **API Server** (`./api/`): Hono HTTP server exposing /status, /decisions,
- *   /campaigns, /control/pause, /control/resume, /control/run. Authenticated
- *   via X-API-Key header.
- *
- * Architecture reference: see CLAUDE.md in the repository root.
+ * This is the single entry point for all consumers of the core package.
  */
 
-export {};
+/* === Core Types === */
+export type { AgentGoal, CampaignMetrics, AgentAction } from './types.js';
+
+/* === Agent Loop & Session === */
+export { runAgentLoop } from './agent/loop.js';
+export { AgentSession } from './agent/session.js';
+export type {
+  AgentLoopContext,
+  AgentLoopResult,
+  MetricsSummary,
+  SessionStatus,
+  AgentSessionConfig,
+  SessionResult,
+} from './agent/types.js';
+
+/* === Tool System === */
+export { createTool, ToolExecutionError } from './tools/types.js';
+export type { Tool, ToolContext, ToolResult } from './tools/types.js';
+export { ToolRegistry } from './tools/registry.js';
+export { ToolExecutor } from './tools/executor.js';
+export type { ExecutorConfig } from './tools/executor.js';
+export { HookManager } from './tools/hooks.js';
+export type { BeforeHook, AfterHook } from './tools/hooks.js';
+
+/* === Creative Tools === */
+export {
+  creativeTools,
+  generateAdCopyTool,
+  createAdCreativeTool,
+  analyzeCreativePerformanceTool,
+  rotateCreativesTool,
+  retireCreativeTool,
+  generateImagePromptsTool,
+  cloneTopCreativeTool,
+  buildAnalysis,
+  classifyCreatives,
+  getRotationState,
+  setRotationState,
+  clearRotationState,
+} from './tools/creative/index.js';
+export type {
+  CreativeToolContext,
+  MetaClientLike,
+  AdCopyVariation,
+  CreativePerformanceAnalysis,
+  ImagePromptSpec,
+  RotationState,
+} from './tools/creative/index.js';
+
+/* === LLM Adapters === */
+export {
+  EventStream,
+  LLMRegistry,
+  ClaudeProvider,
+  OpenAIProvider,
+} from './llm/index.js';
+export type {
+  LLMProvider,
+  LLMProviderFactory,
+  LLMResponse,
+  Message,
+  MessageRole,
+  StreamEvent,
+  TextDeltaEvent,
+  ToolCallStartEvent,
+  ToolCallDeltaEvent,
+  ToolCallEndEvent,
+  ErrorEvent,
+  ToolDefinition,
+  ToolCall,
+} from './llm/index.js';
+
+/* === Decision Engine === */
+export { proposeActions, parseActions, applyGuardrails } from './decisions/engine.js';
+export { scoreAction, scoreProposal, rankProposals } from './decisions/scoring.js';
+export { DEFAULT_GUARDRAILS } from './decisions/types.js';
+export type {
+  ActionProposal,
+  GuardrailConfig,
+  RawProposedAction,
+} from './decisions/types.js';
+
+/* === Database === */
+export { createDatabase, createDatabaseAsync } from './db/index.js';
+export type { DatabaseType, DatabaseConfig, DatabaseConnection } from './db/index.js';
+export {
+  agentSessions,
+  agentDecisions,
+  campaignSnapshots,
+  agentConfig,
+} from './db/schema.js';
+
+/* === Audit Logging === */
+export { AuditLogger } from './audit/logger.js';
+export type { AuditDatabase } from './audit/logger.js';
+export type { AuditRecord, AuditFilter } from './audit/types.js';
+
+/* === Configuration === */
+export { loadConfig } from './config/index.js';
+export { AgentConfigSchema } from './config/types.js';
+export type { AgentConfig, AgentConfigInput } from './config/types.js';
