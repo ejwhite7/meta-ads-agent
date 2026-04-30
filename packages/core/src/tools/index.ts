@@ -2,15 +2,23 @@
  * @module tools
  * @description Central registry of all agent tools. Import this module to
  * access the full tool suite organized by capability domain.
+ *
+ * Campaign, creative, and reporting tools export ready-to-use tool instances.
+ * Budget tools use a factory pattern (they require a MetaClient instance at
+ * construction time), so we export both the factory and a convenience function
+ * that assembles all tools at once.
  */
+
+import type { TObject } from '@sinclair/typebox';
+import type { Tool } from './types.js';
 
 // Campaign management tools
 export * from './campaign/index.js';
 export { campaignTools } from './campaign/index.js';
 
-// Budget optimization tools
+// Budget optimization tools (factory pattern)
 export * from './budget/index.js';
-export { budgetTools } from './budget/index.js';
+export { createBudgetTools } from './budget/index.js';
 
 // Creative generation tools
 export * from './creative/index.js';
@@ -20,12 +28,50 @@ export { creativeTools } from './creative/index.js';
 export * from './reporting/index.js';
 export { reportingTools } from './reporting/index.js';
 
+/* Re-export infrastructure */
+export { createTool, ToolExecutionError } from './types.js';
+export type { ToolContext, ToolResult } from './types.js';
+export { ToolRegistry } from './registry.js';
+export { ToolExecutor } from './executor.js';
+export { HookManager } from './hooks.js';
+
+/* ---- Convenience imports for allTools builder ---- */
+import { campaignTools } from './campaign/index.js';
+import { creativeTools } from './creative/index.js';
+import { reportingTools } from './reporting/index.js';
+
 /**
- * All tools combined — use this to register the full tool suite with the agent.
+ * Static tools that do not require runtime configuration.
+ * These can be registered immediately on agent startup.
  */
-export const allTools = [
-  ...campaignTools,
-  ...budgetTools,
-  ...creativeTools,
-  ...reportingTools,
+export const staticTools: ReadonlyArray<Tool<TObject>> = [
+  ...(campaignTools as ReadonlyArray<Tool<TObject>>),
+  ...(creativeTools as ReadonlyArray<Tool<TObject>>),
+  ...(reportingTools as ReadonlyArray<Tool<TObject>>),
 ];
+
+/**
+ * Assembles the complete tool suite including budget tools (which require
+ * a MetaClient instance). Call this during agent initialization when the
+ * MetaClient is available.
+ *
+ * @param budgetTools - Budget tools created via createBudgetTools()
+ * @returns Combined array of all agent tools
+ */
+export function buildAllTools(
+  budgetTools: ReadonlyArray<Tool<TObject>>,
+): ReadonlyArray<Tool<TObject>> {
+  return [
+    ...(campaignTools as ReadonlyArray<Tool<TObject>>),
+    ...budgetTools,
+    ...(creativeTools as ReadonlyArray<Tool<TObject>>),
+    ...(reportingTools as ReadonlyArray<Tool<TObject>>),
+  ];
+}
+
+/**
+ * For environments where budget tools are not needed (e.g. testing),
+ * allTools provides the static tool set. When budget tools are required,
+ * use buildAllTools() instead.
+ */
+export const allTools: ReadonlyArray<Tool<TObject>> = staticTools;
