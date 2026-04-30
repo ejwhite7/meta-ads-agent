@@ -34,11 +34,6 @@ const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 type LLMProvider = "claude" | "openai";
 
 /**
- * Supported risk level values for the agent.
- */
-type RiskLevel = "conservative" | "moderate" | "aggressive";
-
-/**
  * Shape of the persisted configuration file.
  */
 interface AgentConfig {
@@ -176,10 +171,10 @@ export function registerInitCommand(program: Command): void {
 			]);
 
 			const providerLabel = llmProvider === "claude" ? "Anthropic" : "OpenAI";
-			const { llmApiKey } = await inquirer.prompt<{ llmApiKey: string }>([
+			const { apiKey } = await inquirer.prompt<{ apiKey: string }>([
 				{
 					type: "password",
-					name: "llmApiKey",
+					name: "apiKey",
 					message: `Enter your ${providerLabel} API key:`,
 					mask: "*",
 					validate: (input: string) => (input.length > 0 ? true : "API key is required."),
@@ -190,16 +185,17 @@ export function registerInitCommand(program: Command): void {
 			section("Agent Goals");
 
 			const goals = await inquirer.prompt<{
-				roasTarget: number;
+				targetRoas: number;
 				cpaCap: number;
-				dailyBudgetLimit: number;
-				riskLevel: RiskLevel;
+				minDailyBudget: number;
+				maxBudgetScaleFactor: number;
+				requireApprovalAbove: number;
 			}>([
 				{
 					type: "number",
-					name: "roasTarget",
-					message: "Target ROAS (e.g. 4.0):",
-					default: 4.0,
+					name: "targetRoas",
+					message: "Target ROAS (e.g. 3.0):",
+					default: 3.0,
 					validate: (input: number) => (input > 0 ? true : "ROAS target must be positive."),
 				},
 				{
@@ -211,21 +207,24 @@ export function registerInitCommand(program: Command): void {
 				},
 				{
 					type: "number",
-					name: "dailyBudgetLimit",
-					message: "Daily budget limit in dollars (e.g. 500):",
-					default: 500,
-					validate: (input: number) => (input > 0 ? true : "Budget limit must be positive."),
+					name: "minDailyBudget",
+					message: "Minimum daily budget in dollars (e.g. 5.00):",
+					default: 5.0,
+					validate: (input: number) => (input > 0 ? true : "Budget must be positive."),
 				},
 				{
-					type: "list",
-					name: "riskLevel",
-					message: "Risk level for autonomous actions:",
-					choices: [
-						{ name: "Conservative — small, incremental changes", value: "conservative" },
-						{ name: "Moderate — balanced optimization moves", value: "moderate" },
-						{ name: "Aggressive — larger swings for faster gains", value: "aggressive" },
-					],
-					default: "moderate",
+					type: "number",
+					name: "maxBudgetScaleFactor",
+					message: "Max budget scale factor (e.g. 1.5 = 50% increase max):",
+					default: 1.5,
+					validate: (input: number) => (input > 1 ? true : "Scale factor must be greater than 1."),
+				},
+				{
+					type: "number",
+					name: "requireApprovalAbove",
+					message: "Require manual approval for changes above this dollar amount:",
+					default: 1000.0,
+					validate: (input: number) => (input > 0 ? true : "Threshold must be positive."),
 				},
 			]);
 
@@ -235,14 +234,14 @@ export function registerInitCommand(program: Command): void {
 				metaAdAccountId,
 				llmProvider,
 				...(llmProvider === "claude"
-					? { anthropicApiKey: llmApiKey }
-					: { openaiApiKey: llmApiKey }),
+					? { anthropicApiKey: apiKey }
+					: { openaiApiKey: apiKey }),
 				agent: {
-					targetRoas: goals.roasTarget,
+					targetRoas: goals.targetRoas,
 					cpaCap: goals.cpaCap,
-					minDailyBudget: 5.0,
-					maxBudgetScaleFactor: 1.5,
-					requireApprovalAbove: 1000.0,
+					minDailyBudget: goals.minDailyBudget,
+					maxBudgetScaleFactor: goals.maxBudgetScaleFactor,
+					requireApprovalAbove: goals.requireApprovalAbove,
 				},
 			};
 
@@ -266,12 +265,13 @@ export function registerInitCommand(program: Command): void {
 
 			// Summary
 			section("Setup Complete");
-			console.log(`  Ad Account:     ${metaAdAccountId}`);
-			console.log(`  LLM Provider:   ${providerLabel}`);
-			console.log(`  ROAS Target:    ${goals.roasTarget}`);
-			console.log(`  CPA Cap:        $${goals.cpaCap}`);
-			console.log(`  Budget Limit:   $${goals.dailyBudgetLimit}/day`);
-			console.log(`  Risk Level:     ${goals.riskLevel}`);
+			console.log(`  Ad Account:            ${metaAdAccountId}`);
+			console.log(`  LLM Provider:          ${providerLabel}`);
+			console.log(`  ROAS Target:           ${goals.targetRoas}`);
+			console.log(`  CPA Cap:               $${goals.cpaCap}`);
+			console.log(`  Min Daily Budget:      $${goals.minDailyBudget}`);
+			console.log(`  Max Scale Factor:      ${goals.maxBudgetScaleFactor}x`);
+			console.log(`  Approval Threshold:    $${goals.requireApprovalAbove}`);
 			console.log();
 			success("Run `meta-ads-agent run` to start the agent.");
 		});

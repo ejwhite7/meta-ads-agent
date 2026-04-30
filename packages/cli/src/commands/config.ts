@@ -21,10 +21,10 @@ import { logger } from "../utils/logger.js";
 const CONFIG_PATH = join(homedir(), ".meta-ads-agent", "config.json");
 
 /** Keys whose values should be masked in display output. */
-const SENSITIVE_KEYS = new Set(["metaAccessToken", "llmApiKey"]);
+const SENSITIVE_KEYS = new Set(["metaAccessToken", "anthropicApiKey", "openaiApiKey"]);
 
 /** Required top-level keys for a valid configuration. */
-const REQUIRED_KEYS = ["metaAccessToken", "metaAdAccountId", "llmProvider", "llmApiKey", "goals"];
+const REQUIRED_KEYS = ["metaAccessToken", "metaAdAccountId", "llmProvider", "agent"];
 
 /**
  * Load the configuration file from disk.
