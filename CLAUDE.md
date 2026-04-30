@@ -895,3 +895,160 @@ These are specific failure modes identified during architecture analysis. Every 
 | `DASHBOARD_PORT` | No | `3000` | Dashboard API port |
 | `DASHBOARD_API_KEY` | No | — | API key for dashboard authentication |
 | `SENTRY_DSN` | No | — | Sentry error tracking DSN |
+
+---
+
+## Current Implementation Status
+
+This section documents the current state of all packages, tool domains, and areas for future contribution.
+
+### Packages
+
+| Package | Status | Description |
+|---------|--------|-------------|
+| `packages/core` | Implemented | Agent loop (OODA), tool system with TypeBox schemas, LLM adapters (Claude + OpenAI), decision engine with scoring and guardrails, Drizzle DB schema, audit logger, config loader |
+| `packages/meta-client` | Implemented | Two-layer Meta client: CLI wrapper (spawns `meta-ads` Python CLI) + direct API client (axios to `graph.facebook.com/v21.0`). Rate limiter, error handling, 11 CLI command groups, 5 API endpoint modules |
+| `packages/cli` | Implemented | Commander.js CLI with 8 commands: `init`, `run`, `run-once`, `status`, `report`, `pause`, `resume`, `config`. Daemon manager, Winston logging, interactive setup wizard |
+| `packages/dashboard` | Implemented | React 18 + Vite + Tailwind dashboard with 5 pages (Overview, Decisions, Campaigns, Configuration, NotFound). Hono API server, Recharts, polling hooks, agent control buttons |
+
+### Tool Domains
+
+#### Campaign Management (`packages/core/src/tools/campaign/`)
+
+| Tool Name | File | OODA Phase | Description |
+|-----------|------|------------|-------------|
+| `list_campaigns` | `list-campaigns.ts` | Observe | List all campaigns with current performance metrics |
+| `pause_campaign` | `pause-campaign.ts` | Act | Pause a campaign by ID with audit logging |
+| `scale_campaign` | `scale-campaign.ts` | Act | Scale campaign budget with guardrail enforcement |
+| `create_campaign` | `create-campaign.ts` | Act | Create a new campaign from a structured spec |
+| `duplicate_campaign` | `duplicate-campaign.ts` | Act | Copy a campaign structure (paused for review) |
+| `ab_test_campaign` | `ab-test-campaign.ts` | Act | Create A/B split tests |
+| `analyze_performance` | `analyze-performance.ts` | Orient | Analyze performance vs. agent goals (ROAS/CPA gaps) |
+
+#### Budget Optimization (`packages/core/src/tools/budget/`)
+
+Budget tools use a **factory pattern** -- they require a `MetaClient` instance at construction time. Use `createBudgetTools(client, goals, guardrails)` to instantiate all budget tools.
+
+| Tool Name | File | Description |
+|-----------|------|-------------|
+| `get_budget_status` | `get-budget-status.ts` | Account-level spend pacing and burn rate analysis |
+| `get_pacing_alerts` | `get-pacing-alerts.ts` | Campaign-level overpacing/underpacing detection |
+| `set_budget` | `set-budget.ts` | Set absolute daily budget with guardrail enforcement |
+| `reallocate_budget` | `reallocate-budget.ts` | Atomic budget transfer between campaigns |
+| `optimize_bids` | `optimize-bids.ts` | Intelligent bid strategy adjustment (LOWEST_COST / COST_CAP / BID_CAP) |
+| `project_spend` | `project-spend.ts` | End-of-period spend and performance projections |
+
+#### Creative Generation (`packages/core/src/tools/creative/`)
+
+| Tool Name | File | Description |
+|-----------|------|-------------|
+| `generate_ad_copy` | `generate-ad-copy.ts` | LLM-powered ad copy generation with Meta policy compliance |
+| `create_ad_creative` | `create-ad-creative.ts` | Creates creatives in Meta via meta-client |
+| `analyze_creative_performance` | `analyze-creative-performance.ts` | Winner/loser/fatigued classification |
+| `rotate_creatives` | `rotate-creatives.ts` | Round-robin creative rotation for ad sets |
+| `retire_creative` | `retire-creative.ts` | Retires poorly performing creatives with audit logging |
+| `generate_image_prompts` | `generate-image-prompts.ts` | LLM-powered prompts for DALL-E / Midjourney / Ideogram |
+| `clone_top_creative` | `clone-top-creative.ts` | Clones top performers with LLM-generated copy variations |
+
+#### Reporting & Analytics (`packages/core/src/tools/reporting/`)
+
+| Tool Name | File | Description |
+|-----------|------|-------------|
+| `get_campaign_metrics` | `get-campaign-metrics.ts` | Single campaign metrics retrieval |
+| `generate_performance_report` | `generate-performance-report.ts` | Multi-format performance reports (JSON/Markdown/CSV) |
+| `detect_anomalies` | `detect-anomalies.ts` | Anomaly detection vs. 7-day baseline (CPA spike, CTR drop, delivery issues) |
+| `send_slack_webhook` | `send-slack-webhook.ts` | Slack Block Kit notifications for alerts and reports |
+| `get_attribution_stats` | `get-attribution-stats.ts` | Attribution window analysis (1d/7d/28d click) |
+| `export_report` | `export-report.ts` | File export for reports (JSON/Markdown/CSV) |
+
+### Known TODOs (Areas for Future Contribution)
+
+1. **End-to-end tests**: Integration tests with mocked Meta API (msw) and full agent loop
+2. **Dashboard API authentication**: Wire up `X-API-Key` middleware in the Hono server
+3. **Database migrations**: Add `drizzle-kit` migration generation and auto-run on startup
+4. **Docker support**: Finish the multi-stage Docker build and docker-compose config
+5. **Webhook receiver**: Add an endpoint for Meta's real-time update webhooks
+6. **Multi-account support**: Allow managing multiple ad accounts from a single agent instance
+7. **Custom tool plugins**: Allow users to add custom tools via a plugin directory
+8. **Scheduling**: Add cron-style scheduling for report generation and creative analysis
+9. **Cost tracking**: Track LLM API costs per agent cycle
+10. **Rollback support**: Allow the agent to undo its last action if metrics worsen
+
+### How to Add a New Tool
+
+Follow these steps to add a new tool to the agent:
+
+**Step 1: Create the tool file**
+
+Create a new file in the appropriate domain directory, e.g., `packages/core/src/tools/campaign/my-new-tool.ts`:
+
+```typescript
+import { Type, type Static } from '@sinclair/typebox';
+import { createTool } from '../types.js';
+import type { ToolContext, ToolResult } from '../types.js';
+
+const MyNewToolParams = Type.Object({
+  campaignId: Type.String({ description: 'Target campaign ID' }),
+  // ... other parameters with TypeBox types
+});
+
+export const myNewTool = createTool({
+  name: 'my_new_tool',
+  description: 'Description of what this tool does',
+  parameters: MyNewToolParams,
+  async execute(params: Static<typeof MyNewToolParams>, context: ToolContext): Promise<ToolResult> {
+    // Implementation here
+    return {
+      success: true,
+      data: { /* result data */ },
+      message: 'Tool executed successfully',
+    };
+  },
+});
+```
+
+**Step 2: Export from the domain index**
+
+Add the tool to the domain's `index.ts` (e.g., `packages/core/src/tools/campaign/index.ts`):
+
+```typescript
+import { myNewTool } from './my-new-tool.js';
+export { myNewTool } from './my-new-tool.js';
+
+// Add to the domain tools array
+export const campaignTools = [
+  // ... existing tools
+  myNewTool,
+];
+```
+
+**Step 3: Write tests**
+
+Create `packages/core/src/__tests__/tools/campaign/my-new-tool.test.ts` using Vitest:
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+import { myNewTool } from '../../../tools/campaign/my-new-tool.js';
+
+describe('myNewTool', () => {
+  it('should do the thing', async () => {
+    const result = await myNewTool.execute(
+      { campaignId: 'camp_123' },
+      mockContext,
+    );
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+**Step 4: Verify registration**
+
+Run the integration tests to confirm your tool appears in `allTools`:
+
+```bash
+pnpm --filter @meta-ads-agent/core test -- tool-registry
+```
+
+**Step 5: Update CLAUDE.md**
+
+Add your tool to the appropriate domain table in this section.
