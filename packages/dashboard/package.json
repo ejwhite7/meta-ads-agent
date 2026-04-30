@@ -22,7 +22,9 @@
 		"react-dom": "^18.3.0",
 		"react-router-dom": "^6.28.0",
 		"recharts": "^2.13.0",
-		"tailwind-merge": "^2.5.0"
+		"tailwind-merge": "^2.5.0",
+		"drizzle-orm": "^0.36.0",
+		"better-sqlite3": "^11.0.0"
 	},
 	"devDependencies": {
 		"@meta-ads-agent/tsconfig": "workspace:*",

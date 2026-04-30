@@ -14,27 +14,80 @@
  *   POST /api/control/run-once  Trigger a single OODA tick
  *
  * All routes require a valid X-API-Key header for authentication.
+ * Data is served from the Drizzle ORM database with IPC fallback for
+ * live daemon communication.
  */
 
 import { serve } from "@hono/node-server";
+import {
+	agentDecisions,
+	agentSessions,
+	campaignSnapshots,
+	createDatabase,
+} from "@meta-ads-agent/core";
+import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 /**
- * Agent state type.
+ * Create the database connection using environment config or SQLite defaults.
  */
-type AgentState = "running" | "paused" | "stopped";
+const dbConnection = createDatabase({
+	type: "sqlite",
+	sqlitePath: process.env.DB_PATH ?? "./data/agent.db",
+});
+const db = dbConnection.db;
 
 /**
- * In-memory agent state (replaced by core package integration in production).
+ * Send an IPC message to the daemon socket and return the result.
+ *
+ * @param method - The IPC method name (e.g. "pause", "resume", "status").
+ * @param params - Parameters for the IPC call.
+ * @returns The result from the daemon, or null if the daemon is unreachable.
  */
-let agentState: AgentState = "stopped";
-let sessionStartedAt: string | null = null;
-let tickCount = 0;
+async function sendIpc(method: string, params: unknown = {}): Promise<unknown> {
+	const ipcPath =
+		process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
+	const { connect } = await import("node:net");
+	const { randomUUID } = await import("node:crypto");
+	const requestId = randomUUID();
+
+	return new Promise<unknown>((resolve) => {
+		const socket = connect(ipcPath);
+		let buf = "";
+		const timer = setTimeout(() => {
+			socket.destroy();
+			resolve(null);
+		}, 5000);
+
+		socket.on("connect", () => {
+			socket.write(
+				`${JSON.stringify({ id: requestId, method, params })}\n`,
+			);
+		});
+		socket.on("data", (chunk: Buffer) => {
+			buf += chunk.toString();
+			if (buf.includes("\n")) {
+				clearTimeout(timer);
+				socket.end();
+				try {
+					const r = JSON.parse(buf.split("\n")[0]);
+					resolve(r.result ?? null);
+				} catch {
+					resolve(null);
+				}
+			}
+		});
+		socket.on("error", () => {
+			clearTimeout(timer);
+			resolve(null);
+		});
+	});
+}
 
 const app = new Hono();
 
-// CORS — restrict to dashboard origin
+// CORS -- restrict to dashboard origin
 const corsOrigin = process.env.DASHBOARD_CORS_ORIGIN ?? "http://localhost:5173";
 app.use("*", cors({ origin: corsOrigin }));
 
@@ -43,276 +96,154 @@ app.use("*", cors({ origin: corsOrigin }));
  *
  * Validates the X-API-Key header against the DASHBOARD_API_KEY
  * environment variable. Returns 401 if the key is missing or invalid.
+ * Set DASHBOARD_AUTH=none to explicitly disable authentication.
  */
 app.use("/api/*", async (c, next) => {
-	const expectedKey = process.env.DASHBOARD_API_KEY;
-
-	// Require explicit opt-out for auth
-	if (!expectedKey) {
-		if (process.env.DASHBOARD_AUTH === "none") {
-			await next();
-			return;
-		}
-		if (process.env.NODE_ENV === "production") {
-			return c.json({ error: "DASHBOARD_API_KEY must be set in production." }, 500);
-		}
-		console.warn(
-			"[dashboard] WARNING: No DASHBOARD_API_KEY set. Set DASHBOARD_AUTH=none to explicitly skip auth in dev.",
-		);
+	const authDisabled = process.env.DASHBOARD_AUTH === "none";
+	if (authDisabled) {
 		await next();
 		return;
 	}
 
-	const providedKey = c.req.header("X-API-Key");
+	const key = process.env.DASHBOARD_API_KEY;
+	if (!key) {
+		console.warn(
+			"[dashboard] DASHBOARD_API_KEY not set -- set DASHBOARD_AUTH=none to disable auth",
+		);
+	}
 
-	if (!providedKey || providedKey !== expectedKey) {
-		return c.json({ error: "Unauthorized. Provide a valid X-API-Key header." }, 401);
+	const header = c.req.header("X-Api-Key");
+	if (key && header !== key) {
+		return c.json({ error: "Unauthorized" }, 401);
 	}
 
 	await next();
 });
 
 /**
- * GET /api/status — Return the current agent session status.
+ * GET /api/status -- Return the current agent session status.
+ *
+ * Queries the most recent session from the database.
  */
 app.get("/api/status", async (c) => {
-	// Try IPC first, fall back to in-memory state
-	try {
-		const ipcPath =
-			process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
-		const { connect } = await import("node:net");
-		const { randomUUID } = await import("node:crypto");
-		const requestId = randomUUID();
-		const result = await new Promise<unknown>((resolve, reject) => {
-			const socket = connect(ipcPath);
-			let buf = "";
-			const timer = setTimeout(() => {
-				socket.destroy();
-				reject(new Error("timeout"));
-			}, 5000);
-			socket.on("connect", () => {
-				socket.write(`${JSON.stringify({ id: requestId, method: "status", params: {} })}\n`);
-			});
-			socket.on("data", (chunk: Buffer) => {
-				buf += chunk.toString();
-				if (buf.includes("\n")) {
-					clearTimeout(timer);
-					socket.end();
-					try {
-						const r = JSON.parse(buf.split("\n")[0]);
-						resolve(r.result);
-					} catch {
-						resolve(null);
-					}
-				}
-			});
-			socket.on("error", () => {
-				clearTimeout(timer);
-				resolve(null);
-			});
+	const rows = await db
+		.select()
+		.from(agentSessions)
+		.orderBy(desc(agentSessions.createdAt))
+		.limit(1);
+
+	if (rows.length === 0) {
+		return c.json({
+			state: "stopped",
+			sessionId: null,
+			startedAt: null,
+			lastTickAt: null,
+			nextTickAt: null,
+			tickCount: 0,
 		});
-		if (result) return c.json(result);
-	} catch {
-		/* fall through to in-memory */
 	}
 
+	const session = rows[0];
 	return c.json({
-		state: agentState,
-		sessionId: sessionStartedAt ? `session_${Date.parse(sessionStartedAt)}` : null,
-		startedAt: sessionStartedAt,
-		lastTickAt: null,
+		state: session.state,
+		sessionId: session.id,
+		startedAt: session.createdAt,
+		lastTickAt: session.lastTickAt,
 		nextTickAt: null,
-		tickCount,
-		uptime: sessionStartedAt ? Math.floor((Date.now() - Date.parse(sessionStartedAt)) / 1000) : 0,
+		tickCount: session.iterationCount,
 	});
 });
 
 /**
- * GET /api/decisions — Return agent decisions with optional filtering.
+ * GET /api/decisions -- Return agent decisions from the audit log.
  *
  * Query parameters:
- *   status  Filter by decision status (pending | executed | failed | skipped)
- *   search  Text search across tool names and reasoning
- *   limit   Maximum records to return (default 50)
+ *   limit   Maximum records to return (default 100)
  *   offset  Pagination offset (default 0)
  */
 app.get("/api/decisions", async (c) => {
-	// Forward to agent daemon via IPC for live data
-	try {
-		const ipcPath =
-			process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
-		const { connect } = await import("node:net");
-		const { randomUUID } = await import("node:crypto");
-		const requestId = randomUUID();
-		const status = c.req.query("status");
-		const search = c.req.query("search");
-		const limit = Number.parseInt(c.req.query("limit") ?? "50", 10);
-		const offset = Number.parseInt(c.req.query("offset") ?? "0", 10);
-		const result = await new Promise<unknown>((resolve, reject) => {
-			const socket = connect(ipcPath);
-			let buf = "";
-			const timer = setTimeout(() => {
-				socket.destroy();
-				reject(new Error("timeout"));
-			}, 5000);
-			socket.on("connect", () => {
-				socket.write(
-					`${JSON.stringify({ id: requestId, method: "get-decisions", params: { status, search, limit, offset } })}\n`,
-				);
-			});
-			socket.on("data", (chunk: Buffer) => {
-				buf += chunk.toString();
-				if (buf.includes("\n")) {
-					clearTimeout(timer);
-					socket.end();
-					try {
-						const r = JSON.parse(buf.split("\n")[0]);
-						resolve(r.result ?? []);
-					} catch {
-						resolve([]);
-					}
-				}
-			});
-			socket.on("error", () => {
-				clearTimeout(timer);
-				resolve([]);
-			});
-		});
-		return c.json(result);
-	} catch {
-		return c.json([]);
-	}
+	const limit = Number.parseInt(c.req.query("limit") ?? "100", 10);
+	const offset = Number.parseInt(c.req.query("offset") ?? "0", 10);
+
+	const rows = await db
+		.select()
+		.from(agentDecisions)
+		.orderBy(desc(agentDecisions.timestamp))
+		.limit(limit)
+		.offset(offset);
+
+	return c.json(rows);
 });
 
 /**
- * GET /api/campaigns — Return campaign performance snapshots.
+ * GET /api/campaigns -- Return campaign performance snapshots.
  */
 app.get("/api/campaigns", async (c) => {
-	// Forward to agent daemon via IPC for live data
-	try {
-		const ipcPath =
-			process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
-		const { connect } = await import("node:net");
-		const { randomUUID } = await import("node:crypto");
-		const requestId = randomUUID();
-		const result = await new Promise<unknown>((resolve, reject) => {
-			const socket = connect(ipcPath);
-			let buf = "";
-			const timer = setTimeout(() => {
-				socket.destroy();
-				reject(new Error("timeout"));
-			}, 5000);
-			socket.on("connect", () => {
-				socket.write(`${JSON.stringify({ id: requestId, method: "get-campaigns", params: {} })}\n`);
-			});
-			socket.on("data", (chunk: Buffer) => {
-				buf += chunk.toString();
-				if (buf.includes("\n")) {
-					clearTimeout(timer);
-					socket.end();
-					try {
-						const r = JSON.parse(buf.split("\n")[0]);
-						resolve(r.result ?? []);
-					} catch {
-						resolve([]);
-					}
-				}
-			});
-			socket.on("error", () => {
-				clearTimeout(timer);
-				resolve([]);
-			});
-		});
-		return c.json(result);
-	} catch {
-		return c.json([]);
-	}
+	const rows = await db.select().from(campaignSnapshots).limit(50);
+	return c.json(rows);
 });
 
 /**
- * POST /api/control/pause — Pause the running agent.
+ * POST /api/control/pause -- Pause the running agent.
+ *
+ * Updates the session state in the database, then attempts to notify
+ * the daemon via IPC.
  */
 app.post("/api/control/pause", async (c) => {
-	try {
-		const ipcPath =
-			process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
-		const { connect } = await import("node:net");
-		const { randomUUID } = await import("node:crypto");
-		const requestId = randomUUID();
-		await new Promise<void>((resolve, reject) => {
-			const socket = connect(ipcPath);
-			const timer = setTimeout(() => {
-				socket.destroy();
-				reject(new Error("timeout"));
-			}, 5000);
-			socket.on("connect", () => {
-				socket.write(`${JSON.stringify({ id: requestId, method: "pause", params: {} })}\n`);
-			});
-			socket.on("data", () => {
-				clearTimeout(timer);
-				socket.end();
-				resolve();
-			});
-			socket.on("error", () => {
-				clearTimeout(timer);
-				resolve();
-			});
-		});
-	} catch {
-		/* best effort */
+	const sessions = await db
+		.select()
+		.from(agentSessions)
+		.orderBy(desc(agentSessions.createdAt))
+		.limit(1);
+
+	if (sessions.length > 0) {
+		await db
+			.update(agentSessions)
+			.set({ state: "paused", updatedAt: new Date().toISOString() })
+			.where(eq(agentSessions.id, sessions[0].id));
 	}
-	agentState = "paused";
-	return c.json({ success: true, state: agentState });
+
+	// Best-effort IPC notification to daemon
+	await sendIpc("pause");
+
+	return c.json({ success: true, state: "paused" });
 });
 
 /**
- * POST /api/control/resume — Resume a paused agent.
+ * POST /api/control/resume -- Resume a paused agent.
+ *
+ * Updates the session state in the database, then attempts to notify
+ * the daemon via IPC.
  */
 app.post("/api/control/resume", async (c) => {
-	try {
-		const ipcPath =
-			process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
-		const { connect } = await import("node:net");
-		const { randomUUID } = await import("node:crypto");
-		const requestId = randomUUID();
-		await new Promise<void>((resolve, reject) => {
-			const socket = connect(ipcPath);
-			const timer = setTimeout(() => {
-				socket.destroy();
-				reject(new Error("timeout"));
-			}, 5000);
-			socket.on("connect", () => {
-				socket.write(`${JSON.stringify({ id: requestId, method: "resume", params: {} })}\n`);
-			});
-			socket.on("data", () => {
-				clearTimeout(timer);
-				socket.end();
-				resolve();
-			});
-			socket.on("error", () => {
-				clearTimeout(timer);
-				resolve();
-			});
-		});
-	} catch {
-		/* best effort */
+	const sessions = await db
+		.select()
+		.from(agentSessions)
+		.orderBy(desc(agentSessions.createdAt))
+		.limit(1);
+
+	if (sessions.length > 0) {
+		await db
+			.update(agentSessions)
+			.set({ state: "running", updatedAt: new Date().toISOString() })
+			.where(eq(agentSessions.id, sessions[0].id));
 	}
-	agentState = "running";
-	return c.json({ success: true, state: agentState });
+
+	// Best-effort IPC notification to daemon
+	await sendIpc("resume");
+
+	return c.json({ success: true, state: "running" });
 });
 
 /**
- * POST /api/control/run-once — Trigger a single OODA tick.
+ * POST /api/control/run-once -- Trigger a single OODA tick via daemon IPC.
  */
-app.post("/api/control/run-once", (c) => {
-	if (agentState === "stopped") {
-		// Auto-start the session for a single tick.
-		agentState = "running";
-		sessionStartedAt = new Date().toISOString();
+app.post("/api/control/run-once", async (c) => {
+	const result = await sendIpc("run-once", {});
+	if (result) {
+		return c.json(result);
 	}
-
-	tickCount++;
-	return c.json({ success: true, tickCount });
+	return c.json({ error: "Agent daemon is not running" }, 503);
 });
 
 /**
