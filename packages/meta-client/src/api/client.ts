@@ -176,8 +176,12 @@ export class ApiClient {
 			method,
 			url: path,
 			...config,
+			headers: {
+				Authorization: `Bearer ${this.accessToken}`,
+				"Content-Type": "application/json",
+				...config?.headers,
+			},
 			params: {
-				// access_token moved to Authorization header
 				...config?.params,
 			},
 		});
