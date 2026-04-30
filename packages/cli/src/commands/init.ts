@@ -9,7 +9,7 @@
  *   4. Choose an LLM provider (Claude or OpenAI) and enter the API key.
  *   5. Set agent goals: ROAS target, CPA cap, daily budget limit, risk level.
  *   6. Persist the config to ~/.meta-ads-agent/config.json.
- *   7. Validate the token with `meta ads auth whoami` (if CLI available).
+ *   7. Validate the token with `meta auth status` (if CLI available).
  *
  * Uses inquirer for interactive prompts and chalk for coloured output.
  */
@@ -65,10 +65,10 @@ function tryExec(cmd: string): string | null {
 }
 
 /**
- * Verify that the `meta-ads` Python CLI is reachable.
+ * Verify that the `meta` CLI binary is reachable by checking its version.
  */
 function checkMetaCliInstalled(): boolean {
-	const result = tryExec("meta ads auth whoami");
+	const result = tryExec("meta --version");
 	return result !== null;
 }
 
@@ -77,7 +77,7 @@ function checkMetaCliInstalled(): boolean {
  * Falls back to manual entry if the CLI call fails.
  */
 function listAdAccounts(): string[] {
-	const raw = tryExec("meta ads ad_accounts list --format json");
+	const raw = tryExec("meta ads adaccount list --format json");
 	if (!raw) return [];
 
 	try {
@@ -89,10 +89,10 @@ function listAdAccounts(): string[] {
 }
 
 /**
- * Validate the Meta access token by running `meta ads auth whoami`.
+ * Validate the Meta access token by running `meta auth status`.
  */
 function validateToken(): boolean {
-	const result = tryExec("meta ads auth whoami");
+	const result = tryExec("meta auth status");
 	return result !== null && !result.toLowerCase().includes("error");
 }
 
@@ -297,7 +297,7 @@ export function registerInitCommand(program: Command): void {
 				warn(
 					"Simulation mode is enabled. Install the Meta Ads CLI to use all features:\n" +
 						"  pip install meta-ads\n" +
-						"  Then run: meta ads auth login",
+						"  Then set your token: export ACCESS_TOKEN=<your-token>",
 				);
 			}
 
