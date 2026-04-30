@@ -42,9 +42,6 @@ export const createCampaignTool = createTool({
 		"Create a new Meta campaign with the specified objective and daily budget. " +
 		"Validates inputs (non-empty name, budget >= $5, valid objective) before creation.",
 	parameters: Type.Object({
-		adAccountId: Type.String({
-			description: "Meta ad account ID (format: act_XXXXXXXXXX)",
-		}),
 		name: Type.String({
 			description: "Campaign name (must be non-empty)",
 		}),
@@ -72,7 +69,7 @@ export const createCampaignTool = createTool({
 		}),
 	}),
 	async execute(params, context): Promise<ToolResult> {
-		const { adAccountId, name, objective, dailyBudget, status } = params;
+		const { name, objective, dailyBudget, status } = params;
 		const initialStatus = status ?? "PAUSED";
 
 		try {
@@ -125,7 +122,7 @@ export const createCampaignTool = createTool({
 			 * ----------------------------------------------------------------*/
 			const budgetInCents = Math.round(dailyBudget * 100);
 
-			const campaign = await context.metaClient.campaigns.create(adAccountId, {
+			const campaign = await context.metaClient.campaigns.create(context.adAccountId, {
 				name: trimmedName,
 				objective,
 				daily_budget: budgetInCents,
@@ -138,7 +135,7 @@ export const createCampaignTool = createTool({
 			await context.auditLogger.record({
 				toolName: "create_campaign",
 				toolParams: {
-					adAccountId,
+					adAccountId: context.adAccountId,
 					name: trimmedName,
 					objective,
 					dailyBudget,
@@ -159,6 +156,7 @@ export const createCampaignTool = createTool({
 					dailyBudget,
 					status: initialStatus,
 				},
+				message: `Created campaign "${trimmedName}" (ID: ${campaign.id}) with objective ${objective}, budget $${dailyBudget.toFixed(2)}/day, status ${initialStatus}.`,
 			};
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Unknown error creating campaign";

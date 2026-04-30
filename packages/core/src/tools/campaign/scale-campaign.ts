@@ -135,7 +135,8 @@ export const scaleCampaignTool = createTool({
 						currentBudget,
 						proposedBudget: newBudget,
 					},
-				};
+								message: "Budget change requires approval.",
+};
 			}
 
 			/* ------------------------------------------------------------------
@@ -170,7 +171,8 @@ export const scaleCampaignTool = createTool({
 					scaleFactor,
 					reason,
 				},
-			};
+							message: `Campaign budget scaled successfully.`,
+};
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Unknown error scaling campaign";
 

@@ -28,9 +28,6 @@ export const abTestCampaignTool = createTool({
 		"audience, or placement. Uses Meta's split test API and returns a test ID " +
 		"for monitoring.",
 	parameters: Type.Object({
-		adAccountId: Type.String({
-			description: "Meta ad account ID (format: act_XXXXXXXXXX)",
-		}),
 		name: Type.String({
 			description: "Name for the split test",
 		}),
@@ -53,7 +50,7 @@ export const abTestCampaignTool = createTool({
 		}),
 	}),
 	async execute(params, context): Promise<ToolResult> {
-		const { adAccountId, name, testVariable, duration, budget } = params;
+		const { name, testVariable, duration, budget } = params;
 
 		try {
 			/* ------------------------------------------------------------------
@@ -92,7 +89,7 @@ export const abTestCampaignTool = createTool({
 			 * ----------------------------------------------------------------*/
 			const splitTest = await context.metaClient.splitTests.create({
 				name: trimmedName,
-				adAccountId,
+				adAccountId: context.adAccountId,
 				testVariable,
 				budget,
 				duration,
@@ -103,7 +100,7 @@ export const abTestCampaignTool = createTool({
 			 * ----------------------------------------------------------------*/
 			await context.auditLogger.record({
 				toolName: "ab_test_campaign",
-				toolParams: { adAccountId, name: trimmedName, testVariable, duration, budget },
+				toolParams: { adAccountId: context.adAccountId, name: trimmedName, testVariable, duration, budget },
 				outcome:
 					`Created A/B split test '${trimmedName}' (ID: ${splitTest.id}). ` +
 					`Variable: ${testVariable}, duration: ${duration} days, ` +
@@ -121,6 +118,7 @@ export const abTestCampaignTool = createTool({
 					budget,
 					status: splitTest.status,
 				},
+				message: `Created A/B test "${trimmedName}" (ID: ${splitTest.id}) testing ${testVariable} over ${duration} days with budget $${budget.toFixed(2)}.`,
 			};
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Unknown error creating split test";

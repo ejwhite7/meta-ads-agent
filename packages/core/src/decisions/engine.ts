@@ -9,7 +9,7 @@
 
 import type { TObject } from "@sinclair/typebox";
 import type { Tool } from "../tools/types.js";
-import type { AgentGoal, CampaignMetrics } from "../types.js";
+import type { AgentGoal, CampaignMetrics, PendingAction } from "../types.js";
 import { rankProposals } from "./scoring.js";
 import type { ActionProposal, GuardrailConfig, RawProposedAction } from "./types.js";
 import { DEFAULT_GUARDRAILS } from "./types.js";
@@ -101,11 +101,36 @@ export function parseActions(
  * @param currentMetrics - Current campaign metrics (for budget comparison)
  * @returns Filtered array of safe proposals
  */
+/**
+ * Result of applying guardrails: approved actions and pending actions requiring human approval.
+ */
+export interface GuardrailResult {
+	/** Proposals that passed all guardrail checks and can be executed immediately. */
+	readonly approved: ActionProposal[];
+	/** Proposals that exceed the approval threshold and require human sign-off. */
+	readonly pending: PendingAction[];
+}
+
+/**
+ * Applies guardrail constraints to scored proposals and separates them into
+ * approved (safe to execute) and pending (requires human approval) buckets.
+ *
+ * Checks each proposal against:
+ * 1. Budget floor -- rejects proposals that would set budget below minimum
+ * 2. Scale factor -- rejects scale_campaign proposals exceeding maxBudgetScaleFactor
+ * 3. Absolute amount -- rejects set_budget/reallocate_budget proposals exceeding limits
+ * 4. Approval threshold -- routes proposals above requireApprovalAbove to pending
+ *
+ * @param proposals - Scored action proposals to evaluate
+ * @param guardrails - Guardrail configuration
+ * @param currentMetrics - Current campaign metrics (for budget comparison)
+ * @returns Object with approved proposals and pending actions requiring approval
+ */
 export function applyGuardrails(
 	proposals: ActionProposal[],
 	guardrails: GuardrailConfig,
 	currentMetrics: CampaignMetrics[],
-): ActionProposal[] {
+): GuardrailResult {
 	/* Build a map of current daily budgets by campaign ID.
 	 * dailyBudget comes from the campaign snapshot, not spend. */
 	const currentBudgetByCampaign = new Map<string, number>();
@@ -120,19 +145,37 @@ export function applyGuardrails(
 	}
 
 	/** Budget-modifying tool names */
-	const budgetTools = new Set([
+	const budgetModifyingTools = new Set([
 		"set_budget",
 		"scale_campaign",
 		"reallocate_budget",
-		"create_campaign",
+		"optimize_bids",
 	]);
 
-	return proposals.filter((proposal) => {
-		/* Only apply budget guardrails to budget-modifying tools */
-		if (!budgetTools.has(proposal.toolName)) return true;
+	const approved: ActionProposal[] = [];
+	const pending: PendingAction[] = [];
+	let pendingCounter = 0;
+
+	for (const proposal of proposals) {
+		/* Non-budget tools pass through immediately */
+		if (!budgetModifyingTools.has(proposal.toolName)) {
+			approved.push(proposal);
+			continue;
+		}
 
 		const campaignId = proposal.params.campaignId as string | undefined;
 		const currentBudget = campaignId ? (currentBudgetByCampaign.get(campaignId) ?? 0) : 0;
+
+		/* --- Tool-specific guardrail checks --- */
+
+		/* scale_campaign: enforce scaleFactor <= maxBudgetScaleFactor */
+		if (proposal.toolName === "scale_campaign" && proposal.params.scaleFactor !== undefined) {
+			const sf = Number(proposal.params.scaleFactor);
+			if (sf > guardrails.maxBudgetScaleFactor) {
+				/* Hard reject -- scale factor too high */
+				continue;
+			}
+		}
 
 		/* Compute the proposed new budget based on tool type */
 		let newBudget: number | undefined;
@@ -146,28 +189,47 @@ export function applyGuardrails(
 			newBudget = currentBudget + Number(proposal.params.amount);
 		}
 
-		if (newBudget === undefined) return true;
+		/* If we could not determine a new budget value, allow the action */
+		if (newBudget === undefined) {
+			approved.push(proposal);
+			continue;
+		}
 
 		/* Check budget floor */
 		if (newBudget < guardrails.minDailyBudget) {
-			return false;
+			/* Hard reject -- below minimum */
+			continue;
 		}
 
 		/* Check scale factor against current budget (not spend) */
 		if (currentBudget > 0) {
-			const scaleFactor = newBudget / currentBudget;
-			if (scaleFactor > guardrails.maxBudgetScaleFactor) {
-				return false;
+			const effectiveScaleFactor = newBudget / currentBudget;
+			if (effectiveScaleFactor > guardrails.maxBudgetScaleFactor) {
+				/* Hard reject -- effective scale factor exceeds limit */
+				continue;
 			}
 		}
 
-		/* Check approval threshold */
+		/* Check approval threshold -- route to pending instead of rejecting */
 		if (newBudget > guardrails.requireApprovalAbove) {
-			return false;
+			pendingCounter++;
+			pending.push({
+				id: `pending_${Date.now()}_${pendingCounter}`,
+				toolName: proposal.toolName,
+				params: proposal.params,
+				reason:
+					`Proposed budget $${newBudget.toFixed(2)} exceeds approval threshold ` +
+					`$${guardrails.requireApprovalAbove.toFixed(2)}. ` +
+					`Reasoning: ${proposal.reasoning}`,
+				createdAt: new Date().toISOString(),
+			});
+			continue;
 		}
 
-		return true;
-	});
+		approved.push(proposal);
+	}
+
+	return { approved, pending };
 }
 
 /**
@@ -207,8 +269,8 @@ export function proposeActions(
 	const ranked = rankProposals(rawActions);
 
 	/* Step 3: Apply guardrail filters */
-	const safe = applyGuardrails(ranked, effectiveGuardrails, metrics);
+	const { approved } = applyGuardrails(ranked, effectiveGuardrails, metrics);
 
 	/* Step 4: Enforce max actions per cycle */
-	return safe.slice(0, effectiveGuardrails.maxActionsPerCycle);
+	return approved.slice(0, effectiveGuardrails.maxActionsPerCycle);
 }

@@ -20,6 +20,10 @@ function createMockContext(
 	const campaigns = overrides.campaigns ?? [];
 
 	return {
+		sessionId: "test-session",
+		adAccountId: "act_123456",
+		dryRun: false,
+		timestamp: new Date().toISOString(),
 		metaClient: {
 			campaigns: {
 				list: overrides.listError
@@ -90,7 +94,7 @@ describe("listCampaignsTool", () => {
 		const ctx = createMockContext({ campaigns: sampleCampaigns });
 
 		const result = await listCampaignsTool.execute(
-			{ adAccountId: "act_123456", status: "ALL" },
+			{ status: "ALL" },
 			ctx,
 		);
 
@@ -108,7 +112,7 @@ describe("listCampaignsTool", () => {
 		const ctx = createMockContext({ campaigns: [sampleCampaigns[0]] });
 
 		const result = await listCampaignsTool.execute(
-			{ adAccountId: "act_123456", status: "ACTIVE" },
+			{ status: "ACTIVE" },
 			ctx,
 		);
 
@@ -121,7 +125,7 @@ describe("listCampaignsTool", () => {
 	it("defaults to ALL when status is omitted", async () => {
 		const ctx = createMockContext({ campaigns: sampleCampaigns });
 
-		const result = await listCampaignsTool.execute({ adAccountId: "act_123456" }, ctx);
+		const result = await listCampaignsTool.execute({}, ctx);
 
 		expect(result.success).toBe(true);
 		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456", {});
@@ -130,7 +134,7 @@ describe("listCampaignsTool", () => {
 	it("records an audit entry on success", async () => {
 		const ctx = createMockContext({ campaigns: sampleCampaigns });
 
-		await listCampaignsTool.execute({ adAccountId: "act_123456", status: "ALL" }, ctx);
+		await listCampaignsTool.execute({ status: "ALL" }, ctx);
 
 		expect(ctx.auditLogger.record).toHaveBeenCalledTimes(1);
 		const entry = (ctx.auditLogger.record as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -142,7 +146,7 @@ describe("listCampaignsTool", () => {
 		const ctx = createMockContext({ campaigns: [] });
 
 		const result = await listCampaignsTool.execute(
-			{ adAccountId: "act_123456", status: "ACTIVE" },
+			{ status: "ACTIVE" },
 			ctx,
 		);
 
@@ -157,7 +161,7 @@ describe("listCampaignsTool", () => {
 		});
 
 		const result = await listCampaignsTool.execute(
-			{ adAccountId: "act_123456", status: "ALL" },
+			{ status: "ALL" },
 			ctx,
 		);
 

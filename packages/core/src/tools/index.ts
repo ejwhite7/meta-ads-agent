@@ -67,6 +67,7 @@ export { HookManager } from "./hooks.js";
 import { campaignTools } from "./campaign/index.js";
 import { creativeTools } from "./creative/index.js";
 import { reportingTools } from "./reporting/index.js";
+import { budgetTools } from "./budget/index.js";
 
 /**
  * Static tools that do not require runtime configuration.
@@ -74,6 +75,7 @@ import { reportingTools } from "./reporting/index.js";
  */
 export const staticTools: ReadonlyArray<Tool<TObject>> = [
 	...(campaignTools as ReadonlyArray<Tool<TObject>>),
+	...(budgetTools as ReadonlyArray<Tool<TObject>>),
 	...(creativeTools as ReadonlyArray<Tool<TObject>>),
 	...(reportingTools as ReadonlyArray<Tool<TObject>>),
 ];

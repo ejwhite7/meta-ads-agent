@@ -72,7 +72,8 @@ export const pauseCampaignTool = createTool({
 						action: "none",
 						reason,
 					},
-				};
+								message: `Campaign ${params.campaignId} paused successfully.`,
+};
 			}
 
 			/* ------------------------------------------------------------------
@@ -102,7 +103,8 @@ export const pauseCampaignTool = createTool({
 					action: "paused",
 					reason,
 				},
-			};
+							message: `Campaign ${params.campaignId} paused successfully.`,
+};
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Unknown error pausing campaign";
 

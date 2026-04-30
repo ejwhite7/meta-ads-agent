@@ -28,8 +28,6 @@ const ATTRIBUTION_WINDOW_MAP: Record<string, string> = {
  * TypeBox schema for get-attribution-stats parameters.
  */
 const GetAttributionStatsParams = Type.Object({
-	/** Meta ad account ID. */
-	adAccountId: Type.String({ description: "Meta ad account ID (e.g., 'act_123456789')" }),
 	/** Attribution window for conversion credit assignment. */
 	attributionWindow: Type.Union(
 		[Type.Literal("1d_click"), Type.Literal("7d_click"), Type.Literal("28d_click")],
@@ -80,7 +78,7 @@ export const getAttributionStats = createTool({
 			const windowValue = ATTRIBUTION_WINDOW_MAP[params.attributionWindow];
 
 			/* ---- Fetch insights with attribution window ---- */
-			const insights = await ctx.metaClient.insights.query(params.adAccountId, {
+			const insights = await ctx.metaClient.insights.query(context.adAccountId, {
 				level: "campaign",
 				date_preset: "last_30d",
 				fields: ["campaign_id", "campaign_name", "actions", "spend", "impressions"],
@@ -117,7 +115,7 @@ export const getAttributionStats = createTool({
 			campaignData.sort((a, b) => b.conversions - a.conversions);
 
 			const report: AttributionReport = {
-				adAccountId: params.adAccountId,
+				adAccountId: context.adAccountId,
 				attributionWindow: params.attributionWindow,
 				totalConversions,
 				totalRevenue,
@@ -127,7 +125,7 @@ export const getAttributionStats = createTool({
 			return {
 				success: true,
 				data: report as unknown as Record<string, unknown>,
-				message: `Attribution report generated for ${params.adAccountId} (${params.attributionWindow} window, ${insights.length} campaigns).`,
+				message: `Attribution report generated for ${context.adAccountId} (${params.attributionWindow} window, ${insights.length} campaigns).`,
 			};
 		} catch (error) {
 			const errMessage = error instanceof Error ? error.message : String(error);

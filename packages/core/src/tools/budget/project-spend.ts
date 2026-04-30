@@ -23,8 +23,6 @@ export type ProjectionConfidence = "high" | "medium" | "low";
  * TypeBox schema for project_spend tool parameters.
  */
 const ProjectSpendParams = Type.Object({
-	/** Meta ad account ID (format: "act_XXXXXXXXX"). */
-	adAccountId: Type.String({ description: "Meta ad account ID (format: act_XXXXXXXXX)" }),
 	/** Time horizon for the projection. */
 	projectionPeriod: Type.Union(
 		[Type.Literal("end_of_day"), Type.Literal("end_of_week"), Type.Literal("end_of_month")],
@@ -100,10 +98,10 @@ export function createProjectSpendTool(client: MetaClient) {
 
 		async execute(params: ProjectSpendInput, context: ToolContext): Promise<ToolResult> {
 			const now = new Date(context.timestamp);
-			const { adAccountId, projectionPeriod } = params;
+			const { projectionPeriod } = params;
 
 			/* Fetch last 7 days of account-level insights for burn rate calculation */
-			const insights = await client.insights.query(adAccountId, {
+			const insights = await client.insights.query(context.adAccountId, {
 				level: "account",
 				date_preset: "last_7d",
 				fields: ["spend", "impressions", "clicks", "actions"],
@@ -159,7 +157,7 @@ export function createProjectSpendTool(client: MetaClient) {
 					break;
 			}
 
-			const currentInsights = await client.insights.query(adAccountId, {
+			const currentInsights = await client.insights.query(context.adAccountId, {
 				level: "account",
 				date_preset: currentPeriodDatePreset,
 				fields: ["spend"],
@@ -199,7 +197,7 @@ export function createProjectSpendTool(client: MetaClient) {
 			return {
 				success: true,
 				data: {
-					adAccountId,
+					adAccountId: context.adAccountId,
 					projectionPeriod,
 					currentPeriodSpend: Math.round(currentPeriodSpend * 100) / 100,
 					projectedSpend: Math.round(projectedTotalSpend * 100) / 100,

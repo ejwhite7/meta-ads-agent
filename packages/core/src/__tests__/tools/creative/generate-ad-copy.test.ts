@@ -39,7 +39,6 @@ function mockLLMProvider(responseJson: string): LLMProvider {
 function mockContext(llmProvider: LLMProvider): CreativeToolContext {
 	return {
 		sessionId: "test-session-001",
-		adAccountId: "act_123456",
 		dryRun: false,
 		timestamp: new Date().toISOString(),
 		llmProvider,

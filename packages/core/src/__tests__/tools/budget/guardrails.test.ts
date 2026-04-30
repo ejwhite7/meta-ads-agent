@@ -76,7 +76,6 @@ function createMockClient(
 function createTestContext(overrides: Partial<ToolContext> = {}): ToolContext {
 	return {
 		sessionId: "test-session-001",
-		adAccountId: "act_123456789",
 		dryRun: false,
 		timestamp: "2026-01-15T12:00:00.000Z",
 		...overrides,

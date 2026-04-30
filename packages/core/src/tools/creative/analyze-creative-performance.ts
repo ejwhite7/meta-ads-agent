@@ -27,9 +27,6 @@ import type {
  * TypeBox schema for analyze-creative-performance parameters.
  */
 const AnalyzePerformanceParams = Type.Object({
-	/** Meta ad account ID (format: "act_XXXXXXXXX"). */
-	adAccountId: Type.String({ description: "Meta ad account ID" }),
-
 	/** Date range for performance data. */
 	dateRange: Type.Union(
 		[Type.Literal("last_7d"), Type.Literal("last_14d"), Type.Literal("last_30d")],
@@ -227,12 +224,12 @@ export const analyzeCreativePerformanceTool = createTool({
 			return {
 				success: true,
 				data: { dryRun: true, dateRange: params.dateRange },
-				message: `Dry run: would analyze creative performance for ${params.adAccountId} over ${params.dateRange}.`,
+				message: `Dry run: would analyze creative performance for ${context.adAccountId} over ${params.dateRange}.`,
 			};
 		}
 
 		try {
-			const insights = await ctx.metaClient.insights.query(params.adAccountId, {
+			const insights = await ctx.metaClient.insights.query(context.adAccountId, {
 				level: "ad",
 				date_preset: params.dateRange,
 				fields: ["ad_id", "ad_name", "impressions", "clicks", "spend", "ctr", "cpm", "actions"],

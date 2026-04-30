@@ -25,8 +25,6 @@ import { parseInsightsToAdSetMetrics, parseInsightsToMetrics, resolveDateRange }
  * TypeBox schema for generate-performance-report parameters.
  */
 const GeneratePerformanceReportParams = Type.Object({
-	/** Meta ad account ID (format: "act_XXXXXXXXX"). */
-	adAccountId: Type.String({ description: "Meta ad account ID (e.g., 'act_123456789')" }),
 	/** Date range selection mode. */
 	dateRange: Type.Union(
 		[Type.Literal("last_7d"), Type.Literal("last_30d"), Type.Literal("custom")],
@@ -105,7 +103,7 @@ export const generatePerformanceReport = createTool({
 			}
 
 			/* ---- Fetch campaign-level insights ---- */
-			const campaignInsights = await ctx.metaClient.insights.query(params.adAccountId, {
+			const campaignInsights = await ctx.metaClient.insights.query(context.adAccountId, {
 				level: "campaign",
 				...dateConfig,
 				fields: [
@@ -128,7 +126,7 @@ export const generatePerformanceReport = createTool({
 				.sort((a, b) => b.spend - a.spend);
 
 			/* ---- Fetch ad-set-level insights ---- */
-			const adSetInsights = await ctx.metaClient.insights.query(params.adAccountId, {
+			const adSetInsights = await ctx.metaClient.insights.query(context.adAccountId, {
 				level: "adset",
 				...dateConfig,
 				fields: [
@@ -199,7 +197,7 @@ export const generatePerformanceReport = createTool({
 					formatted,
 					format: params.format,
 				} as unknown as Record<string, unknown>,
-				message: `Performance report generated for ${params.adAccountId} (${params.dateRange}).`,
+				message: `Performance report generated for ${context.adAccountId} (${params.dateRange}).`,
 			};
 		} catch (error) {
 			const errMessage = error instanceof Error ? error.message : String(error);

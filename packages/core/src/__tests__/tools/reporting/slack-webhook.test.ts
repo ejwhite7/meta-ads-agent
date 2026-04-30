@@ -13,7 +13,6 @@ import type { ToolContext } from "../../../tools/types.js";
 /** Basic tool context for testing (Slack webhook doesn't need MetaClient). */
 const mockContext: ToolContext = {
 	sessionId: "test-session",
-	adAccountId: "act_123",
 	dryRun: false,
 	timestamp: new Date().toISOString(),
 };

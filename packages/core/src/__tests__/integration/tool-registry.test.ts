@@ -19,6 +19,7 @@ import {
 	reportingTools,
 	staticTools,
 } from "../../tools/index.js";
+import { budgetTools } from "../../tools/budget/index.js";
 import { ToolRegistry } from "../../tools/registry.js";
 
 /* ------------------------------------------------------------------ */
@@ -33,6 +34,15 @@ const EXPECTED_CAMPAIGN_TOOLS = [
 	"duplicate_campaign",
 	"ab_test_campaign",
 	"analyze_performance",
+];
+
+const EXPECTED_BUDGET_TOOLS = [
+	"get_budget_status",
+	"get_pacing_alerts",
+	"set_budget",
+	"reallocate_budget",
+	"optimize_bids",
+	"project_spend",
 ];
 
 const EXPECTED_CREATIVE_TOOLS = [
@@ -68,6 +78,14 @@ describe("Tool Registry Integration", () => {
 			expect(campaignTools.length).toBe(EXPECTED_CAMPAIGN_TOOLS.length);
 		});
 
+		it("budgetTools should export all expected budget tools", () => {
+			const names = (budgetTools as Array<{ name: string }>).map((t) => t.name);
+			for (const expected of EXPECTED_BUDGET_TOOLS) {
+				expect(names).toContain(expected);
+			}
+			expect(budgetTools.length).toBe(EXPECTED_BUDGET_TOOLS.length);
+		});
+
 		it("creativeTools should export all expected creative tools", () => {
 			const names = (creativeTools as Array<{ name: string }>).map((t) => t.name);
 			for (const expected of EXPECTED_CREATIVE_TOOLS) {
@@ -89,6 +107,7 @@ describe("Tool Registry Integration", () => {
 		it("should contain all static tools from campaign, creative, and reporting", () => {
 			const totalExpected =
 				EXPECTED_CAMPAIGN_TOOLS.length +
+				EXPECTED_BUDGET_TOOLS.length +
 				EXPECTED_CREATIVE_TOOLS.length +
 				EXPECTED_REPORTING_TOOLS.length;
 
@@ -104,6 +123,7 @@ describe("Tool Registry Integration", () => {
 			// Also check across all domain arrays combined
 			const allNames = [
 				...campaignTools.map((t) => t.name),
+				...(budgetTools as Array<{ name: string }>).map((t) => t.name),
 				...(creativeTools as Array<{ name: string }>).map((t) => t.name),
 				...(reportingTools as Array<{ name: string }>).map((t) => t.name),
 			];

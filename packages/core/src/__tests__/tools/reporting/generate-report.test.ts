@@ -28,7 +28,6 @@ function createMockContext(
 
 	return {
 		sessionId: "test-session",
-		adAccountId: "act_123",
 		dryRun: false,
 		timestamp: new Date().toISOString(),
 		metaClient: {
@@ -124,7 +123,7 @@ describe("generatePerformanceReport", () => {
 			});
 
 			const result = await generatePerformanceReport.execute(
-				{ adAccountId: "act_123", dateRange: "last_7d", format: "markdown" },
+				{ dateRange: "last_7d", format: "markdown" },
 				ctx,
 			);
 
@@ -166,7 +165,7 @@ describe("generatePerformanceReport", () => {
 			});
 
 			const result = await generatePerformanceReport.execute(
-				{ adAccountId: "act_123", dateRange: "last_7d", format: "markdown" },
+				{ dateRange: "last_7d", format: "markdown" },
 				ctx,
 			);
 
@@ -183,7 +182,7 @@ describe("generatePerformanceReport", () => {
 			});
 
 			const result = await generatePerformanceReport.execute(
-				{ adAccountId: "act_123", dateRange: "last_7d", format: "csv" },
+				{ dateRange: "last_7d", format: "csv" },
 				ctx,
 			);
 
@@ -222,7 +221,7 @@ describe("generatePerformanceReport", () => {
 			});
 
 			const result = await generatePerformanceReport.execute(
-				{ adAccountId: "act_123", dateRange: "last_7d", format: "json" },
+				{ dateRange: "last_7d", format: "json" },
 				ctx,
 			);
 
@@ -277,7 +276,7 @@ describe("generatePerformanceReport", () => {
 			});
 
 			const result = await generatePerformanceReport.execute(
-				{ adAccountId: "act_123", dateRange: "last_7d", format: "json" },
+				{ dateRange: "last_7d", format: "json" },
 				ctx,
 			);
 
@@ -291,7 +290,7 @@ describe("generatePerformanceReport", () => {
 			const ctx = createMockContext();
 
 			const result = await generatePerformanceReport.execute(
-				{ adAccountId: "act_123", dateRange: "custom", format: "json" },
+				{ dateRange: "custom", format: "json" },
 				ctx,
 			);
 
@@ -307,7 +306,6 @@ describe("generatePerformanceReport", () => {
 
 			const result = await generatePerformanceReport.execute(
 				{
-					adAccountId: "act_123",
 					dateRange: "custom",
 					startDate: "2024-01-01",
 					endDate: "2024-01-31",
@@ -330,7 +328,7 @@ describe("generatePerformanceReport", () => {
 		});
 
 		const result = await generatePerformanceReport.execute(
-			{ adAccountId: "act_123", dateRange: "last_7d", format: "json" },
+			{ dateRange: "last_7d", format: "json" },
 			ctx,
 		);
 
@@ -343,13 +341,12 @@ describe("generatePerformanceReport", () => {
 	it("should fail when MetaClient is not available", async () => {
 		const ctx = {
 			sessionId: "test-session",
-			adAccountId: "act_123",
 			dryRun: false,
 			timestamp: new Date().toISOString(),
 		};
 
 		const result = await generatePerformanceReport.execute(
-			{ adAccountId: "act_123", dateRange: "last_7d", format: "json" },
+			{ dateRange: "last_7d", format: "json" },
 			ctx,
 		);
 

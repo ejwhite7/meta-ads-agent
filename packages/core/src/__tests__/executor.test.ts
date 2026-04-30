@@ -22,7 +22,7 @@ import type { ToolContext } from "../tools/types.js";
 function mockContext(): ToolContext {
 	return {
 		sessionId: "test-session",
-		adAccountId: "act_123",
+		adAccountId: "act_test",
 		dryRun: false,
 		timestamp: new Date().toISOString(),
 	};

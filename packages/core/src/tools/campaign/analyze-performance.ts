@@ -205,6 +205,7 @@ export const analyzePerformanceTool = createTool({
 			return {
 				success: true,
 				data: analysis as unknown as Record<string, unknown>,
+				message: `Performance analysis complete for campaign ${campaignId}.`,
 			};
 		} catch (error: unknown) {
 			const message =

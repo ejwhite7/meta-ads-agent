@@ -24,9 +24,6 @@ import type { CreativeToolContext } from "./types.js";
  * TypeBox schema for clone-top-creative parameters.
  */
 const CloneTopCreativeParams = Type.Object({
-	/** Meta ad account ID (format: "act_XXXXXXXXX"). */
-	adAccountId: Type.String({ description: "Meta ad account ID" }),
-
 	/** Campaign ID to analyze for the top creative. */
 	campaignId: Type.String({ description: "Campaign ID to find the top creative in" }),
 
@@ -139,7 +136,7 @@ export const cloneTopCreativeTool = createTool({
 
 		try {
 			/* Step 1: Fetch ad-level insights for the campaign */
-			const insights = await ctx.metaClient.insights.query(params.adAccountId, {
+			const insights = await ctx.metaClient.insights.query(context.adAccountId, {
 				level: "ad",
 				date_preset: "last_14d",
 				fields: ["ad_id", "ad_name", "impressions", "clicks", "spend", "ctr", "cpm", "actions"],
@@ -171,7 +168,7 @@ export const cloneTopCreativeTool = createTool({
 			);
 
 			/* Step 3: Fetch the top creative's details */
-			const ads = await ctx.metaClient.ads.list(params.adAccountId);
+			const ads = await ctx.metaClient.ads.list(context.adAccountId);
 			const topAd = ads.find((ad) => ad.id === topAnalysis.creativeId);
 
 			if (!topAd) {
@@ -206,7 +203,7 @@ export const cloneTopCreativeTool = createTool({
 
 			for (let i = 0; i < variations.length; i++) {
 				const variation = variations[i];
-				const creative = await ctx.metaClient.creatives.create(params.adAccountId, {
+				const creative = await ctx.metaClient.creatives.create(context.adAccountId, {
 					name: `clone-${topAd.creative_id}-v${i + 1}-${dateSlug}`,
 					title: variation.headline,
 					body: variation.body,

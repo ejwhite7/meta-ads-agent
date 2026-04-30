@@ -25,9 +25,6 @@ export const listCampaignsTool = createTool({
 		"List all campaigns for a Meta ad account with current performance metrics. " +
 		"Used in the Observe phase to capture the current advertising state.",
 	parameters: Type.Object({
-		adAccountId: Type.String({
-			description: "Meta ad account ID (format: act_XXXXXXXXXX)",
-		}),
 		status: Type.Optional(
 			Type.Union([Type.Literal("ACTIVE"), Type.Literal("PAUSED"), Type.Literal("ALL")], {
 				default: "ALL",
@@ -36,18 +33,18 @@ export const listCampaignsTool = createTool({
 		),
 	}),
 	async execute(params, context): Promise<ToolResult> {
-		const { adAccountId, status } = params;
+		const { status } = params;
 		const filterStatus = status ?? "ALL";
 
 		try {
 			const filterParams: Record<string, unknown> =
 				filterStatus !== "ALL" ? { status: filterStatus } : {};
 
-			const campaigns = await context.metaClient.campaigns.list(adAccountId, filterParams);
+			const campaigns = await context.metaClient.campaigns.list(context.adAccountId, filterParams);
 
 			await context.auditLogger.record({
 				toolName: "list_campaigns",
-				toolParams: { adAccountId, status: filterStatus },
+				toolParams: { adAccountId: context.adAccountId, status: filterStatus },
 				outcome: `Retrieved ${campaigns.length} campaign(s) with status filter '${filterStatus}'`,
 				timestamp: new Date().toISOString(),
 			});
@@ -57,9 +54,10 @@ export const listCampaignsTool = createTool({
 				data: {
 					campaigns,
 					count: campaigns.length,
-					adAccountId,
+					adAccountId: context.adAccountId,
 					filterStatus,
 				},
+				message: `Retrieved ${campaigns.length} campaign(s) for ${context.adAccountId} with status filter '${filterStatus}'.`,
 			};
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Unknown error listing campaigns";
@@ -67,8 +65,8 @@ export const listCampaignsTool = createTool({
 			return {
 				success: false,
 				data: null,
-				error: `Failed to list campaigns for ${adAccountId}: ${message}`,
-				message: `Failed to list campaigns for ${adAccountId}: ${message}`,
+				error: `Failed to list campaigns for ${context.adAccountId}: ${message}`,
+				message: `Failed to list campaigns for ${context.adAccountId}: ${message}`,
 				errorCode: "META_API_ERROR",
 			};
 		}

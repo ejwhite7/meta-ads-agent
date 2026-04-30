@@ -10,7 +10,7 @@
  */
 
 /* === Core Types === */
-export type { AgentGoal, CampaignMetrics, AgentAction } from "./types.js";
+export type { AgentGoal, CampaignMetrics, AgentAction, PendingAction } from "./types.js";
 
 /* === Agent Loop & Session === */
 export { runAgentLoop } from "./agent/loop.js";
@@ -44,6 +44,8 @@ export {
 	staticTools,
 } from "./tools/index.js";
 
+export { budgetTools } from "./tools/budget/index.js";
+
 /* === LLM Adapters === */
 export {
 	EventStream,
@@ -69,6 +71,7 @@ export type {
 
 /* === Decision Engine === */
 export { proposeActions, parseActions, applyGuardrails } from "./decisions/engine.js";
+export type { GuardrailResult } from "./decisions/engine.js";
 export { scoreAction, scoreProposal, rankProposals } from "./decisions/scoring.js";
 export { DEFAULT_GUARDRAILS } from "./decisions/types.js";
 export type {

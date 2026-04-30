@@ -19,9 +19,6 @@ import type { CreativeToolContext } from "./types.js";
  * or pre-uploaded image hash.
  */
 const CreateAdCreativeParams = Type.Object({
-	/** Meta ad account ID (format: "act_XXXXXXXXX"). */
-	adAccountId: Type.String({ description: "Meta ad account ID" }),
-
 	/** Facebook Page ID that owns the ad post. */
 	pageId: Type.String({ description: "Facebook Page ID for the ad" }),
 
@@ -99,12 +96,12 @@ export const createAdCreativeTool = createTool({
 			return {
 				success: true,
 				data: { creativeName, params, dryRun: true },
-				message: `Dry run: would create creative "${creativeName}" in account ${params.adAccountId}.`,
+				message: `Dry run: would create creative "${creativeName}" in account ${context.adAccountId}.`,
 			};
 		}
 
 		try {
-			const creative = await ctx.metaClient.creatives.create(params.adAccountId, {
+			const creative = await ctx.metaClient.creatives.create(context.adAccountId, {
 				name: creativeName,
 				title: params.headline,
 				body: params.body,
@@ -128,7 +125,7 @@ export const createAdCreativeTool = createTool({
 			return {
 				success: true,
 				data: { creativeId: creative.id, creativeName: creative.name },
-				message: `Created creative "${creative.name}" (ID: ${creative.id}) in account ${params.adAccountId}.`,
+				message: `Created creative "${creative.name}" (ID: ${creative.id}) in account ${context.adAccountId}.`,
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);

@@ -163,7 +163,6 @@ describe("Integration: Agent Loop OODA Cycle", () => {
 				toolRegistry: registry,
 				llmProvider: createMockLLM(llmResponse),
 				guardrails: DEFAULT_GUARDRAILS,
-				adAccountId: "act_123456",
 				maxProposals: 5,
 			});
 
@@ -205,7 +204,6 @@ describe("Integration: Agent Loop OODA Cycle", () => {
 				toolRegistry: registry,
 				llmProvider: createMockLLM(llmResponse),
 				guardrails: DEFAULT_GUARDRAILS,
-				adAccountId: "act_123456",
 				maxProposals: 5,
 			});
 
@@ -268,7 +266,6 @@ describe("Integration: Agent Loop OODA Cycle", () => {
 				toolRegistry: registry,
 				llmProvider: createMockLLM(llmResponse),
 				guardrails: tightGuardrails,
-				adAccountId: "act_123456",
 				maxProposals: 5,
 			});
 
@@ -317,7 +314,6 @@ describe("Integration: Agent Loop OODA Cycle", () => {
 				name: "detect_anomalies",
 				description: "Detect metric anomalies",
 				parameters: Type.Object({
-					adAccountId: Type.String(),
 					sensitivityLevel: Type.String(),
 				}),
 				execute: async () => ({
@@ -342,7 +338,7 @@ describe("Integration: Agent Loop OODA Cycle", () => {
 			const llmResponse = JSON.stringify([
 				{
 					toolName: "detect_anomalies",
-					params: { adAccountId: "act_123456", sensitivityLevel: "high" },
+					params: { sensitivityLevel: "high" },
 					reasoning: "CPA of $100 is a 6.7x spike. Running anomaly detection.",
 					expectedOutcome: "Confirm CPA anomaly and identify root cause",
 					confidence: 0.95,
@@ -370,7 +366,6 @@ describe("Integration: Agent Loop OODA Cycle", () => {
 				toolRegistry: registry,
 				llmProvider: createMockLLM(llmResponse),
 				guardrails: DEFAULT_GUARDRAILS,
-				adAccountId: "act_123456",
 				maxProposals: 10,
 			});
 

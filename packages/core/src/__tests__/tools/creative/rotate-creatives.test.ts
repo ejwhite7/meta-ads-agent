@@ -51,7 +51,6 @@ function mockMetaClient(
 function mockContext(metaClient: MetaClientLike): CreativeToolContext {
 	return {
 		sessionId: "test-session-001",
-		adAccountId: "act_123456",
 		dryRun: false,
 		timestamp: "2026-04-30T12:00:00.000Z",
 		llmProvider: {} as LLMProvider,

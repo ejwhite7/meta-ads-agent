@@ -39,8 +39,6 @@ export interface PacingAlert {
  * TypeBox schema for get_pacing_alerts tool parameters.
  */
 const GetPacingAlertsParams = Type.Object({
-	/** Meta ad account ID (format: "act_XXXXXXXXX"). */
-	adAccountId: Type.String({ description: "Meta ad account ID (format: act_XXXXXXXXX)" }),
 });
 
 /** Inferred TypeScript type from the parameter schema. */
@@ -73,11 +71,11 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 			const fractionElapsed = dayOfMonth / daysInMonth;
 
 			/* Fetch active campaigns */
-			const campaigns = await client.campaigns.list(params.adAccountId);
+			const campaigns = await client.campaigns.list(context.adAccountId);
 			const activeCampaigns = campaigns.filter((c) => c.status === "ACTIVE" && c.daily_budget);
 
 			/* Fetch campaign-level insights for this month */
-			const insights = await client.insights.query(params.adAccountId, {
+			const insights = await client.insights.query(context.adAccountId, {
 				level: "campaign",
 				date_preset: "this_month",
 				fields: ["campaign_id", "campaign_name", "spend"],
@@ -146,7 +144,7 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 			return {
 				success: true,
 				data: {
-					adAccountId: params.adAccountId,
+					adAccountId: context.adAccountId,
 					alertCount: alerts.length,
 					alerts,
 					evaluatedCampaigns: activeCampaigns.length,

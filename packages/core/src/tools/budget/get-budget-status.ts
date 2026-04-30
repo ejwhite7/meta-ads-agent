@@ -24,8 +24,6 @@ export type PacingStatus = "on_track" | "overpacing" | "underpacing";
  * TypeBox schema for get_budget_status tool parameters.
  */
 const GetBudgetStatusParams = Type.Object({
-	/** Meta ad account ID (format: "act_XXXXXXXXX"). */
-	adAccountId: Type.String({ description: "Meta ad account ID (format: act_XXXXXXXXX)" }),
 	/** Predefined date range for the budget analysis. */
 	datePreset: Type.Union(
 		[Type.Literal("today"), Type.Literal("last_7d"), Type.Literal("this_month")],
@@ -105,7 +103,7 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 			const now = new Date(context.timestamp);
 
 			/* Fetch campaign list to compute total budget */
-			const campaigns = await client.campaigns.list(params.adAccountId);
+			const campaigns = await client.campaigns.list(context.adAccountId);
 			const activeCampaigns = campaigns.filter((c) => c.status === "ACTIVE");
 
 			/* Sum daily budgets across active campaigns (budgets are in cents) */
@@ -118,7 +116,7 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 			const totalDailyBudget = totalDailyBudgetCents / 100;
 
 			/* Fetch account-level insights for the requested period */
-			const insights = await client.insights.query(params.adAccountId, {
+			const insights = await client.insights.query(context.adAccountId, {
 				level: "account",
 				date_preset: params.datePreset,
 				fields: ["spend", "impressions", "clicks", "actions"],
@@ -150,7 +148,7 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 			return {
 				success: true,
 				data: {
-					adAccountId: params.adAccountId,
+					adAccountId: context.adAccountId,
 					datePreset: params.datePreset,
 					totalSpend: Math.round(totalSpend * 100) / 100,
 					totalDailyBudget: Math.round(totalDailyBudget * 100) / 100,
@@ -162,7 +160,7 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 					activeCampaignCount: activeCampaigns.length,
 				},
 				message:
-					`Budget status for ${params.adAccountId}: ` +
+					`Budget status for ${context.adAccountId}: ` +
 					`$${(Math.round(totalSpend * 100) / 100).toFixed(2)} spent ` +
 					`(${pacing}, ${(pacingRatio * 100).toFixed(1)}% of expected pace). ` +
 					`Burn rate: $${(Math.round(burnRate * 100) / 100).toFixed(2)}/day. ` +

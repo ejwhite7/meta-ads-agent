@@ -27,7 +27,6 @@ function createMockContext(overrides: {
 
 	return {
 		sessionId: "test-session",
-		adAccountId: "act_123",
 		dryRun: false,
 		timestamp: new Date().toISOString(),
 		metaClient: {
@@ -98,7 +97,7 @@ describe("detectAnomalies", () => {
 		});
 
 		const result = await detectAnomalies.execute(
-			{ adAccountId: "act_123", sensitivityLevel: "medium" },
+			{ sensitivityLevel: "medium" },
 			ctx,
 		);
 
@@ -112,7 +111,7 @@ describe("detectAnomalies", () => {
 		});
 
 		const result = await detectAnomalies.execute(
-			{ adAccountId: "act_123", sensitivityLevel: "medium" },
+			{ sensitivityLevel: "medium" },
 			ctx,
 		);
 
@@ -131,7 +130,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -152,7 +151,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "high" },
+				{ sensitivityLevel: "high" },
 				ctx,
 			);
 
@@ -173,7 +172,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -196,7 +195,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -217,7 +216,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -240,7 +239,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -275,7 +274,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -306,7 +305,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -332,7 +331,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const result = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "medium" },
+				{ sensitivityLevel: "medium" },
 				ctx,
 			);
 
@@ -356,7 +355,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const highResult = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "high" },
+				{ sensitivityLevel: "high" },
 				ctx1,
 			);
 
@@ -367,7 +366,7 @@ describe("detectAnomalies", () => {
 			});
 
 			const lowResult = await detectAnomalies.execute(
-				{ adAccountId: "act_123", sensitivityLevel: "low" },
+				{ sensitivityLevel: "low" },
 				ctx2,
 			);
 
@@ -382,7 +381,6 @@ describe("detectAnomalies", () => {
 	it("should handle MetaClient errors gracefully", async () => {
 		const ctx: ReportingToolContext = {
 			sessionId: "test-session",
-			adAccountId: "act_123",
 			dryRun: false,
 			timestamp: new Date().toISOString(),
 			metaClient: {
@@ -396,7 +394,7 @@ describe("detectAnomalies", () => {
 		};
 
 		const result = await detectAnomalies.execute(
-			{ adAccountId: "act_123", sensitivityLevel: "medium" },
+			{ sensitivityLevel: "medium" },
 			ctx,
 		);
 
@@ -407,13 +405,12 @@ describe("detectAnomalies", () => {
 	it("should fail when MetaClient is not available", async () => {
 		const ctx = {
 			sessionId: "test-session",
-			adAccountId: "act_123",
 			dryRun: false,
 			timestamp: new Date().toISOString(),
 		};
 
 		const result = await detectAnomalies.execute(
-			{ adAccountId: "act_123", sensitivityLevel: "medium" },
+			{ sensitivityLevel: "medium" },
 			ctx,
 		);
 

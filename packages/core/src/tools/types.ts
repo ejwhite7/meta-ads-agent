@@ -71,7 +71,7 @@ export interface ToolResult {
 	readonly data?: Record<string, unknown> | null;
 
 	/** Human-readable message describing the outcome */
-	readonly message?: string;
+	readonly message: string;
 
 	/** Error description when the tool fails */
 	readonly error?: string;

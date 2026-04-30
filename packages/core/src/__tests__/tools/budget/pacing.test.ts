@@ -102,7 +102,7 @@ describe("get_budget_status pacing calculations", () => {
 
 		const tool = createGetBudgetStatusTool(client);
 		const result = await tool.execute(
-			{ adAccountId: "act_123456789", datePreset: "this_month" },
+			{ datePreset: "this_month" },
 			createTestContext(),
 		);
 
@@ -141,7 +141,7 @@ describe("get_budget_status pacing calculations", () => {
 
 		const tool = createGetBudgetStatusTool(client);
 		const result = await tool.execute(
-			{ adAccountId: "act_123456789", datePreset: "this_month" },
+			{ datePreset: "this_month" },
 			createTestContext(),
 		);
 
@@ -180,7 +180,7 @@ describe("get_budget_status pacing calculations", () => {
 
 		const tool = createGetBudgetStatusTool(client);
 		const result = await tool.execute(
-			{ adAccountId: "act_123456789", datePreset: "this_month" },
+			{ datePreset: "this_month" },
 			createTestContext(),
 		);
 
@@ -217,7 +217,7 @@ describe("get_budget_status pacing calculations", () => {
 
 		const tool = createGetBudgetStatusTool(client);
 		const result = await tool.execute(
-			{ adAccountId: "act_123456789", datePreset: "this_month" },
+			{ datePreset: "this_month" },
 			createTestContext(),
 		);
 
@@ -244,7 +244,7 @@ describe("get_budget_status pacing calculations", () => {
 
 		const tool = createGetBudgetStatusTool(client);
 		const result = await tool.execute(
-			{ adAccountId: "act_123456789", datePreset: "this_month" },
+			{ datePreset: "this_month" },
 			createTestContext(),
 		);
 
@@ -284,7 +284,7 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
+		const result = await tool.execute({}, createTestContext());
 
 		expect(result.success).toBe(true);
 		expect(result.data?.alertCount).toBeGreaterThan(0);
@@ -326,7 +326,7 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
+		const result = await tool.execute({}, createTestContext());
 
 		expect(result.success).toBe(true);
 		expect(result.data?.alertCount).toBeGreaterThan(0);
@@ -365,7 +365,7 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
+		const result = await tool.execute({}, createTestContext());
 
 		expect(result.success).toBe(true);
 		expect(result.data?.alertCount).toBe(0);
@@ -402,7 +402,7 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
+		const result = await tool.execute({}, createTestContext());
 
 		expect(result.success).toBe(true);
 		const alerts = result.data?.alerts as Array<{ severity: string }>;

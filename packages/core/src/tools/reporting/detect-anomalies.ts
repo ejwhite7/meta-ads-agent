@@ -72,8 +72,6 @@ const THRESHOLDS: Record<string, SensitivityThresholds> = {
  * TypeBox schema for detect-anomalies parameters.
  */
 const DetectAnomaliesParams = Type.Object({
-	/** Meta ad account ID to scan. */
-	adAccountId: Type.String({ description: "Meta ad account ID (e.g., 'act_123456789')" }),
 	/** Sensitivity level controlling detection thresholds. */
 	sensitivityLevel: Type.Union(
 		[Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")],
@@ -129,7 +127,7 @@ export const detectAnomalies = createTool({
 
 		try {
 			/* ---- Fetch active campaigns ---- */
-			const campaigns = await ctx.metaClient.campaigns.list(params.adAccountId);
+			const campaigns = await ctx.metaClient.campaigns.list(context.adAccountId);
 			const activeCampaigns = campaigns.filter((c) => c.status === "ACTIVE");
 
 			if (activeCampaigns.length === 0) {
@@ -141,7 +139,7 @@ export const detectAnomalies = createTool({
 			}
 
 			/* ---- Fetch today's metrics ---- */
-			const todayInsights = await ctx.metaClient.insights.query(params.adAccountId, {
+			const todayInsights = await ctx.metaClient.insights.query(context.adAccountId, {
 				level: "campaign",
 				date_preset: "today",
 				fields: [
@@ -157,7 +155,7 @@ export const detectAnomalies = createTool({
 			});
 
 			/* ---- Fetch 7-day baseline ---- */
-			const baselineInsights = await ctx.metaClient.insights.query(params.adAccountId, {
+			const baselineInsights = await ctx.metaClient.insights.query(context.adAccountId, {
 				level: "campaign",
 				date_preset: "last_7d",
 				fields: [

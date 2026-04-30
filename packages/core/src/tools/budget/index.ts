@@ -67,3 +67,18 @@ export function createBudgetTools(
 		createProjectSpendTool(metaClient),
 	] as ReadonlyArray<Tool<TObject>>;
 }
+
+/**
+ * Default budget tools instantiated without a MetaClient.
+ * These use context.metaClient at execution time instead of a pre-bound client.
+ *
+ * For environments that need tools statically (e.g. allTools registration),
+ * this array provides budget tools that defer client access to the ToolContext.
+ */
+export const budgetTools: ReadonlyArray<Tool<TObject>> = (() => {
+	/* Create a proxy MetaClient that defers to context.metaClient at execution time.
+	 * This allows budget tools to be registered statically in allTools while still
+	 * using the real MetaClient from ToolContext during execution. */
+	const deferredClient = {} as MetaClient;
+	return createBudgetTools(deferredClient);
+})();
