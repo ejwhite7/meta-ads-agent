@@ -1,0 +1,41 @@
+{
+  "name": "@meta-ads-agent/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent loop, tool system, LLM adapters, database, and API server for meta-ads-agent",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "drizzle:generate": "drizzle-kit generate",
+    "drizzle:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@sinclair/typebox": "^0.33.0",
+    "better-sqlite3": "^11.0.0",
+    "drizzle-orm": "^0.36.0",
+    "hono": "^4.6.0",
+    "openai": "^4.75.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@meta-ads-agent/tsconfig": "workspace:*",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.28.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Turborepo
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# Test coverage
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_MODE=postgres
+      - DATABASE_URL=postgresql://meta_agent:meta_agent_pass@postgres:5432/meta_ads_agent
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: meta_agent
+      POSTGRES_PASSWORD: meta_agent_pass
+      POSTGRES_DB: meta_ads_agent
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meta_agent -d meta_ads_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

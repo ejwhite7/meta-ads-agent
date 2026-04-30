@@ -1,0 +1,7 @@
+{
+  "name": "@meta-ads-agent/tsconfig",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared TypeScript configuration for meta-ads-agent",
+  "files": ["base.json"]
+}
