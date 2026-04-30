@@ -1,46 +1,37 @@
 /**
- * @meta-ads-agent/dashboard
+ * @meta-ads-agent/dashboard entry point.
  *
- * React web dashboard for monitoring and controlling the meta-ads-agent.
+ * Mounts the React application into the DOM root element.
+ * Wraps the entire tree in React.StrictMode for development
+ * warnings and double-rendering checks.
  *
  * Tech stack:
- * - React 18 with TypeScript
- * - Vite for bundling and dev server
- * - Tailwind CSS for utility-first styling
- * - shadcn/ui for accessible, composable UI components
- * - Recharts for campaign performance visualization
- *
- * Pages:
- * - /              Dashboard overview (agent status, recent decisions, key metrics)
- * - /decisions     Full decision log with filters and reasoning details
- * - /campaigns     Campaign performance table with ROAS/CPA/spend trends
- * - /settings      Agent configuration (goals, risk level, schedule)
- *
- * API integration:
- * - Connects to the Hono API server in @meta-ads-agent/core
- * - Authenticated via X-API-Key header
- * - Endpoints: /status, /decisions, /campaigns, /control/*
+ *   - React 18 with TypeScript
+ *   - Vite for bundling and dev server
+ *   - Tailwind CSS for utility-first styling
+ *   - shadcn/ui for accessible, composable UI components
+ *   - Recharts for campaign performance charts
  *
  * Architecture reference: see CLAUDE.md in the repository root.
  */
 
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { App } from "./App";
 
-function App() {
-	return (
-		<div>
-			<h1>meta-ads-agent Dashboard</h1>
-			<p>Dashboard UI is under construction. See CLAUDE.md for architecture reference.</p>
-		</div>
-	);
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  throw new Error(
+    "Root element not found. Ensure index.html contains <div id=\"root\"></div>.",
+  );
 }
 
-const root = document.getElementById("root");
-if (root) {
-	ReactDOM.createRoot(root).render(
-		<React.StrictMode>
-			<App />
-		</React.StrictMode>,
-	);
-}
+ReactDOM.createRoot(rootElement).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>,
+);
