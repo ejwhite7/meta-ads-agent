@@ -3,12 +3,13 @@
  *
  * Interactive setup wizard that walks the user through initial configuration:
  *   1. Verify Python and the `meta-ads` CLI are installed.
+ *      - If not found, warn the user and offer to continue in simulation mode.
  *   2. Collect META_ACCESS_TOKEN (with a link to Meta Business Manager).
  *   3. Discover available ad accounts and let the user pick one.
  *   4. Choose an LLM provider (Claude or OpenAI) and enter the API key.
  *   5. Set agent goals: ROAS target, CPA cap, daily budget limit, risk level.
  *   6. Persist the config to ~/.meta-ads-agent/config.json.
- *   7. Validate the token with `meta ads auth whoami`.
+ *   7. Validate the token with `meta ads auth whoami` (if CLI available).
  *
  * Uses inquirer for interactive prompts and chalk for coloured output.
  */
@@ -19,7 +20,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Command } from "commander";
 import inquirer from "inquirer";
-import { error, section, success } from "../utils/display.js";
+import { error, section, success, warn } from "../utils/display.js";
 import { logger } from "../utils/logger.js";
 
 /** Filesystem path to the configuration directory. */
@@ -42,6 +43,7 @@ interface AgentConfig {
 	llmProvider: LLMProvider;
 	anthropicApiKey?: string;
 	openaiApiKey?: string;
+	simulationMode: boolean;
 	agent: {
 		targetRoas: number;
 		cpaCap: number;
@@ -104,19 +106,35 @@ export function registerInitCommand(program: Command): void {
 		.action(async () => {
 			section("meta-ads-agent Setup Wizard");
 
-			// Step 1: Check prerequisites
+			// Step 1: Check prerequisites (non-fatal)
 			logger.info("Checking prerequisites...");
 			const cliInstalled = checkMetaCliInstalled();
+			let simulationMode = false;
+
 			if (!cliInstalled) {
-				error(
-					"The `meta-ads` Python CLI was not found.\n" +
-						"Install it with: pip install meta-ads\n" +
-						"Then run: meta ads auth login",
+				warn(
+					"Meta Ads CLI not found. Install with: pip install meta-ads\n" +
+						"  → Running in simulation mode. Some features will use the Meta Marketing API directly.",
 				);
-				process.exitCode = 1;
-				return;
+
+				const { continueWithout } = await inquirer.prompt<{ continueWithout: boolean }>([
+					{
+						type: "confirm",
+						name: "continueWithout",
+						message: "Continue anyway?",
+						default: true,
+					},
+				]);
+
+				if (!continueWithout) {
+					logger.info("Setup cancelled. Install the CLI and run `meta-ads-agent init` again.");
+					return;
+				}
+
+				simulationMode = true;
+			} else {
+				success("meta-ads CLI detected.");
 			}
-			success("meta-ads CLI detected.");
 
 			// Step 2: Meta Access Token
 			const { metaAccessToken } = await inquirer.prompt<{ metaAccessToken: string }>([
@@ -131,7 +149,7 @@ export function registerInitCommand(program: Command): void {
 			]);
 
 			// Step 3: Ad Account selection
-			const accounts = listAdAccounts();
+			const accounts = simulationMode ? [] : listAdAccounts();
 			let metaAdAccountId: string;
 
 			if (accounts.length > 0) {
@@ -234,6 +252,7 @@ export function registerInitCommand(program: Command): void {
 				metaAdAccountId,
 				llmProvider,
 				...(llmProvider === "claude" ? { anthropicApiKey: apiKey } : { openaiApiKey: apiKey }),
+				simulationMode,
 				agent: {
 					targetRoas: goals.targetRoas,
 					cpaCap: goals.cpaCap,
@@ -252,13 +271,15 @@ export function registerInitCommand(program: Command): void {
 			});
 			success(`Configuration saved to ${CONFIG_PATH}`);
 
-			// Step 7: Validate token
-			logger.info("Validating Meta access token...");
-			const tokenValid = validateToken();
-			if (tokenValid) {
-				success("Meta access token is valid.");
-			} else {
-				error("Could not validate the Meta access token. Please check your token and try again.");
+			// Step 7: Validate token (only if CLI is available)
+			if (!simulationMode) {
+				logger.info("Validating Meta access token...");
+				const tokenValid = validateToken();
+				if (tokenValid) {
+					success("Meta access token is valid.");
+				} else {
+					warn("Could not validate the Meta access token. Please check your token and try again.");
+				}
 			}
 
 			// Summary
@@ -270,6 +291,16 @@ export function registerInitCommand(program: Command): void {
 			console.log(`  Min Daily Budget:      $${goals.minDailyBudget}`);
 			console.log(`  Max Scale Factor:      ${goals.maxBudgetScaleFactor}x`);
 			console.log(`  Approval Threshold:    $${goals.requireApprovalAbove}`);
+
+			if (simulationMode) {
+				console.log();
+				warn(
+					"Simulation mode is enabled. Install the Meta Ads CLI to use all features:\n" +
+						"  pip install meta-ads\n" +
+						"  Then run: meta ads auth login",
+				);
+			}
+
 			console.log();
 			success("Run `meta-ads-agent run` to start the agent.");
 		});

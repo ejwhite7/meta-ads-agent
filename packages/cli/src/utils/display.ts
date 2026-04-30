@@ -49,6 +49,15 @@ export function success(message: string): void {
 }
 
 /**
+ * Print a warning message with a yellow warning prefix.
+ *
+ * @param message - The warning message to display.
+ */
+export function warn(message: string): void {
+	console.log(`${chalk.yellow("!")} ${message}`);
+}
+
+/**
  * Print an error message with a red X prefix.
  *
  * @param message - The error message to display.
