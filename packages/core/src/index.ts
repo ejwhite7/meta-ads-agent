@@ -33,6 +33,23 @@ export type { ExecutorConfig } from './tools/executor.js';
 export { HookManager } from './tools/hooks.js';
 export type { BeforeHook, AfterHook } from './tools/hooks.js';
 
+/* === Budget Tools === */
+export { createBudgetTools } from './tools/index.js';
+export {
+  createGetBudgetStatusTool,
+  createGetPacingAlertsTool,
+  createSetBudgetTool,
+  createReallocateBudgetTool,
+  createOptimizeBidsTool,
+  createProjectSpendTool,
+} from './tools/budget/index.js';
+export type {
+  PacingStatus,
+  PacingAlert,
+  AlertSeverity,
+  ProjectionConfidence,
+} from './tools/budget/index.js';
+
 /* === LLM Adapters === */
 export {
   EventStream,
