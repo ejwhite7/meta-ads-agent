@@ -11,8 +11,7 @@
  * In development, Vite proxies /api requests to the Hono server.
  * In production, this resolves to the same origin.
  */
-export const API_BASE_URL: string =
-  import.meta.env.VITE_API_BASE_URL ?? "";
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "";
 
 /**
  * Polling interval for the agent status endpoint (in milliseconds).

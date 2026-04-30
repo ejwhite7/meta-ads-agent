@@ -7,11 +7,7 @@
  * derived metrics like CPA and ROAS.
  */
 
-import type {
-	InsightsResultLike,
-	ReportCampaignMetrics,
-	ReportAdSetMetrics,
-} from "./types.js";
+import type { InsightsResultLike, ReportAdSetMetrics, ReportCampaignMetrics } from "./types.js";
 
 /**
  * Safely parses a string value to a floating-point number.
@@ -71,19 +67,14 @@ export function extractConversions(
  * @param actions - Array of action objects from the Insights API.
  * @returns Total revenue from purchase-type actions.
  */
-export function extractRevenue(
-	actions?: Array<{ action_type: string; value: string }>,
-): number {
+export function extractRevenue(actions?: Array<{ action_type: string; value: string }>): number {
 	if (!actions || actions.length === 0) {
 		return 0;
 	}
 
 	let total = 0;
 	for (const action of actions) {
-		if (
-			action.action_type === "purchase" ||
-			action.action_type === "omni_purchase"
-		) {
+		if (action.action_type === "purchase" || action.action_type === "omni_purchase") {
 			const value = Number.parseFloat(action.value);
 			if (!Number.isNaN(value)) {
 				total += value;

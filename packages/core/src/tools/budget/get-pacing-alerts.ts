@@ -7,8 +7,8 @@
  * when their pacing deviates more than 20% from the expected pace.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
 import type { MetaClient } from "@meta-ads-agent/meta-client";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 
@@ -66,10 +66,7 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 			">20% deviation from expected pace.",
 		parameters: GetPacingAlertsParams,
 
-		async execute(
-			params: GetPacingAlertsInput,
-			context: ToolContext,
-		): Promise<ToolResult> {
+		async execute(params: GetPacingAlertsInput, context: ToolContext): Promise<ToolResult> {
 			const now = new Date(context.timestamp);
 			const dayOfMonth = now.getDate();
 			const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -77,9 +74,7 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 
 			/* Fetch active campaigns */
 			const campaigns = await client.campaigns.list(params.adAccountId);
-			const activeCampaigns = campaigns.filter(
-				(c) => c.status === "ACTIVE" && c.daily_budget,
-			);
+			const activeCampaigns = campaigns.filter((c) => c.status === "ACTIVE" && c.daily_budget);
 
 			/* Fetch campaign-level insights for this month */
 			const insights = await client.insights.query(params.adAccountId, {
@@ -93,10 +88,7 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 			for (const row of insights) {
 				if (row.campaign_id) {
 					const existing = spendByCampaign.get(row.campaign_id) ?? 0;
-					spendByCampaign.set(
-						row.campaign_id,
-						existing + Number.parseFloat(row.spend || "0"),
-					);
+					spendByCampaign.set(row.campaign_id, existing + Number.parseFloat(row.spend || "0"));
 				}
 			}
 
@@ -104,8 +96,7 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 			const alerts: PacingAlert[] = [];
 
 			for (const campaign of activeCampaigns) {
-				const dailyBudget =
-					Number.parseInt(campaign.daily_budget!, 10) / 100;
+				const dailyBudget = Number.parseInt(campaign.daily_budget ?? "0", 10) / 100;
 				const monthlyBudget = dailyBudget * daysInMonth;
 				const expectedSpend = monthlyBudget * fractionElapsed;
 				const actualSpend = spendByCampaign.get(campaign.id) ?? 0;
@@ -130,12 +121,8 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 					campaignName: campaign.name,
 					severity,
 					message: isOverpacing
-						? `Campaign is overpacing at ${(pacingRatio * 100).toFixed(1)}% of expected pace. ` +
-							`Spent $${actualSpend.toFixed(2)} vs expected $${expectedSpend.toFixed(2)}. ` +
-							`Budget may be exhausted before month end.`
-						: `Campaign is underpacing at ${(pacingRatio * 100).toFixed(1)}% of expected pace. ` +
-							`Spent $${actualSpend.toFixed(2)} vs expected $${expectedSpend.toFixed(2)}. ` +
-							`Potential impressions are being missed.`,
+						? `Campaign is overpacing at ${(pacingRatio * 100).toFixed(1)}% of expected pace. Spent $${actualSpend.toFixed(2)} vs expected $${expectedSpend.toFixed(2)}. Budget may be exhausted before month end.`
+						: `Campaign is underpacing at ${(pacingRatio * 100).toFixed(1)}% of expected pace. Spent $${actualSpend.toFixed(2)} vs expected $${expectedSpend.toFixed(2)}. Potential impressions are being missed.`,
 					recommendedAction: isOverpacing
 						? severity === "critical"
 							? "Consider reducing daily budget or pausing low-performing ad sets immediately."

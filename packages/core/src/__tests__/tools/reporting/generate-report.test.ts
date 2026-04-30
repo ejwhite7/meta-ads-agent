@@ -6,20 +6,23 @@
  * structures with expected headers, sections, and data.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { generatePerformanceReport } from "../../../tools/reporting/generate-performance-report.js";
 import type {
-	ReportingToolContext,
 	InsightsResultLike,
 	PerformanceReport,
+	ReportingToolContext,
 } from "../../../tools/reporting/types.js";
 
 /** Creates a mock ReportingToolContext with configurable insights responses. */
-function createMockContext(overrides: {
-	campaignInsights?: InsightsResultLike[];
-	adSetInsights?: InsightsResultLike[];
-} = {}): ReportingToolContext {
-	const queryFn = vi.fn()
+function createMockContext(
+	overrides: {
+		campaignInsights?: InsightsResultLike[];
+		adSetInsights?: InsightsResultLike[];
+	} = {},
+): ReportingToolContext {
+	const queryFn = vi
+		.fn()
 		.mockResolvedValueOnce(overrides.campaignInsights ?? [])
 		.mockResolvedValueOnce(overrides.adSetInsights ?? []);
 
@@ -74,9 +77,7 @@ const sampleCampaignInsights: InsightsResultLike[] = [
 		cpc: "0.17",
 		reach: "25000",
 		frequency: "1.20",
-		actions: [
-			{ action_type: "purchase", value: "30" },
-		],
+		actions: [{ action_type: "purchase", value: "30" }],
 		date_start: "2024-01-01",
 		date_stop: "2024-01-07",
 	},
@@ -94,9 +95,7 @@ const sampleAdSetInsights: InsightsResultLike[] = [
 		ctr: "0.05",
 		cpm: "10.00",
 		cpc: "0.20",
-		actions: [
-			{ action_type: "purchase", value: "30" },
-		],
+		actions: [{ action_type: "purchase", value: "30" }],
 		date_start: "2024-01-01",
 		date_stop: "2024-01-07",
 	},
@@ -110,9 +109,7 @@ const sampleAdSetInsights: InsightsResultLike[] = [
 		ctr: "0.05",
 		cpm: "10.00",
 		cpc: "0.20",
-		actions: [
-			{ action_type: "purchase", value: "20" },
-		],
+		actions: [{ action_type: "purchase", value: "20" }],
 		date_start: "2024-01-01",
 		date_stop: "2024-01-07",
 	},
@@ -198,8 +195,12 @@ describe("generatePerformanceReport", () => {
 			expect(formatted).toContain("Ad Set Breakdown");
 
 			/* Check CSV headers */
-			expect(formatted).toContain("Campaign,Spend,Impressions,Clicks,CTR,CPC,CPM,Conversions,ROAS,CPA");
-			expect(formatted).toContain("Ad Set,Campaign ID,Spend,Impressions,Clicks,CTR,CPC,CPM,Conversions,ROAS,CPA");
+			expect(formatted).toContain(
+				"Campaign,Spend,Impressions,Clicks,CTR,CPC,CPM,Conversions,ROAS,CPA",
+			);
+			expect(formatted).toContain(
+				"Ad Set,Campaign ID,Spend,Impressions,Clicks,CTR,CPC,CPM,Conversions,ROAS,CPA",
+			);
 
 			/* Check data rows */
 			expect(formatted).toContain("Brand Awareness Campaign");
@@ -209,7 +210,7 @@ describe("generatePerformanceReport", () => {
 			const lines = formatted.split("\n");
 			const dataLine = lines.find((l) => l.includes("Brand Awareness Campaign"));
 			expect(dataLine).toBeDefined();
-			expect(dataLine!.split(",").length).toBeGreaterThan(5);
+			expect(dataLine?.split(",").length).toBeGreaterThan(5);
 		});
 	});
 

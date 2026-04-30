@@ -54,15 +54,15 @@ export {
 	formatDate,
 } from "./utils.js";
 
+import type { TObject } from "@sinclair/typebox";
+import type { Tool } from "../types.js";
+import { detectAnomalies } from "./detect-anomalies.js";
+import { exportReport } from "./export-report.js";
+import { generatePerformanceReport } from "./generate-performance-report.js";
+import { getAttributionStats } from "./get-attribution-stats.js";
 /* ---- Import tool instances for the aggregate array ---- */
 import { getCampaignMetrics } from "./get-campaign-metrics.js";
-import { generatePerformanceReport } from "./generate-performance-report.js";
-import { detectAnomalies } from "./detect-anomalies.js";
 import { sendSlackWebhook } from "./send-slack-webhook.js";
-import { getAttributionStats } from "./get-attribution-stats.js";
-import { exportReport } from "./export-report.js";
-import type { Tool } from "../types.js";
-import type { TObject } from "@sinclair/typebox";
 
 /**
  * Array of all reporting and analytics tools, ready for bulk registration

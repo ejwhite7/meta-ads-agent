@@ -7,12 +7,12 @@
  * constraints on both source and destination campaigns.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
 import type { MetaClient } from "@meta-ads-agent/meta-client";
-import { createTool } from "../types.js";
-import type { ToolContext, ToolResult } from "../types.js";
+import { type Static, Type } from "@sinclair/typebox";
 import type { GuardrailConfig } from "../../decisions/types.js";
 import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
+import { createTool } from "../types.js";
+import type { ToolContext, ToolResult } from "../types.js";
 
 /**
  * TypeBox schema for reallocate_budget tool parameters.
@@ -66,10 +66,7 @@ export function createReallocateBudgetTool(
 			"Executes both updates atomically with rollback on failure.",
 		parameters: ReallocateBudgetParams,
 
-		async execute(
-			params: ReallocateBudgetInput,
-			context: ToolContext,
-		): Promise<ToolResult> {
+		async execute(params: ReallocateBudgetInput, context: ToolContext): Promise<ToolResult> {
 			const { fromCampaignId, toCampaignId, amount, reason } = params;
 
 			/* Fetch current budgets for both campaigns */
@@ -78,10 +75,8 @@ export function createReallocateBudgetTool(
 				client.campaigns.get(toCampaignId),
 			]);
 
-			const sourceBudget =
-				Number.parseInt(sourceCampaign.daily_budget ?? "0", 10) / 100;
-			const destBudget =
-				Number.parseInt(destCampaign.daily_budget ?? "0", 10) / 100;
+			const sourceBudget = Number.parseInt(sourceCampaign.daily_budget ?? "0", 10) / 100;
+			const destBudget = Number.parseInt(destCampaign.daily_budget ?? "0", 10) / 100;
 
 			const newSourceBudget = sourceBudget - amount;
 			const newDestBudget = destBudget + amount;
@@ -99,6 +94,10 @@ export function createReallocateBudgetTool(
 						minDailyBudget: guardrails.minDailyBudget,
 						reason,
 					},
+					error:
+						`Reallocation rejected: reducing campaign ${fromCampaignId} ` +
+						`by $${amount.toFixed(2)} would leave $${newSourceBudget.toFixed(2)}, ` +
+						`below the minimum of $${guardrails.minDailyBudget.toFixed(2)}.`,
 					message:
 						`Reallocation rejected: reducing campaign ${fromCampaignId} ` +
 						`by $${amount.toFixed(2)} would leave $${newSourceBudget.toFixed(2)}, ` +
@@ -121,6 +120,10 @@ export function createReallocateBudgetTool(
 						maxAllowedBudget: Math.round(maxDestBudget * 100) / 100,
 						reason,
 					},
+					error:
+						`Reallocation rejected: increasing campaign ${toCampaignId} ` +
+						`to $${newDestBudget.toFixed(2)} exceeds the ${guardrails.maxBudgetScaleFactor}x ` +
+						`scale factor (max: $${maxDestBudget.toFixed(2)} from current $${destBudget.toFixed(2)}).`,
 					message:
 						`Reallocation rejected: increasing campaign ${toCampaignId} ` +
 						`to $${newDestBudget.toFixed(2)} exceeds the ${guardrails.maxBudgetScaleFactor}x ` +
@@ -169,13 +172,8 @@ export function createReallocateBudgetTool(
 					});
 				} catch (rollbackError: unknown) {
 					const rollbackMessage =
-						rollbackError instanceof Error
-							? rollbackError.message
-							: String(rollbackError);
-					const destMessage =
-						destError instanceof Error
-							? destError.message
-							: String(destError);
+						rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+					const destMessage = destError instanceof Error ? destError.message : String(destError);
 					return {
 						success: false,
 						data: {
@@ -188,20 +186,12 @@ export function createReallocateBudgetTool(
 							sourceModifiedBudget: newSourceBudget,
 							originalSourceBudget: sourceBudget,
 						},
-						message:
-							`CRITICAL: Reallocation failed and rollback also failed. ` +
-							`Source campaign ${fromCampaignId} may have an incorrect budget ` +
-							`of $${newSourceBudget.toFixed(2)} (original: $${sourceBudget.toFixed(2)}). ` +
-							`Manual intervention required. ` +
-							`Destination error: ${destMessage}. ` +
-							`Rollback error: ${rollbackMessage}.`,
+						error: `CRITICAL: Reallocation failed and rollback also failed. Source campaign ${fromCampaignId} may have an incorrect budget of $${newSourceBudget.toFixed(2)} (original: $${sourceBudget.toFixed(2)}). Manual intervention required. Destination error: ${destMessage}. Rollback error: ${rollbackMessage}.`,
+						message: `CRITICAL: Reallocation failed and rollback also failed. Source campaign ${fromCampaignId} may have an incorrect budget of $${newSourceBudget.toFixed(2)} (original: $${sourceBudget.toFixed(2)}). Manual intervention required. Destination error: ${destMessage}. Rollback error: ${rollbackMessage}.`,
 					};
 				}
 
-				const destMessage =
-					destError instanceof Error
-						? destError.message
-						: String(destError);
+				const destMessage = destError instanceof Error ? destError.message : String(destError);
 				return {
 					success: false,
 					data: {
@@ -212,6 +202,10 @@ export function createReallocateBudgetTool(
 						rolledBack: true,
 						sourceBudgetRestored: sourceBudget,
 					},
+					error:
+						`Reallocation failed: could not update destination campaign ${toCampaignId}. ` +
+						`Source campaign ${fromCampaignId} budget has been rolled back ` +
+						`to $${sourceBudget.toFixed(2)}. Error: ${destMessage}`,
 					message:
 						`Reallocation failed: could not update destination campaign ${toCampaignId}. ` +
 						`Source campaign ${fromCampaignId} budget has been rolled back ` +

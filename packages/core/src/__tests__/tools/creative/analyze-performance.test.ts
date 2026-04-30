@@ -7,7 +7,7 @@
  * and the bottom-20% retirement recommendation algorithm.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	buildAnalysis,
 	classifyCreatives,
@@ -21,7 +21,9 @@ import type { InsightsResultLike } from "../../../tools/creative/types.js";
  * @param overrides - Partial fields to override defaults.
  * @returns A complete InsightsResultLike object.
  */
-function mockInsight(overrides: Partial<InsightsResultLike> & { ad_id: string }): InsightsResultLike {
+function mockInsight(
+	overrides: Partial<InsightsResultLike> & { ad_id: string },
+): InsightsResultLike {
 	return {
 		impressions: "10000",
 		clicks: "100",
@@ -78,9 +80,7 @@ describe("buildAnalysis", () => {
 	});
 
 	it("should handle missing actions gracefully", () => {
-		const insights: InsightsResultLike[] = [
-			mockInsight({ ad_id: "ad_1" }),
-		];
+		const insights: InsightsResultLike[] = [mockInsight({ ad_id: "ad_1" })];
 
 		const analyses = buildAnalysis(insights);
 		expect(analyses[0].conversions).toBe(0);
@@ -116,9 +116,33 @@ describe("classifyCreatives", () => {
 
 	it("should classify creatives with above-median CTR as winners", () => {
 		const analyses: CreativePerformanceAnalysis[] = [
-			{ creativeId: "ad_1", ctr: 3.0, cpm: 5, frequency: 1.5, conversions: 10, score: 20, recommendation: "keep" },
-			{ creativeId: "ad_2", ctr: 1.0, cpm: 5, frequency: 1.5, conversions: 5, score: 3.3, recommendation: "keep" },
-			{ creativeId: "ad_3", ctr: 2.0, cpm: 5, frequency: 1.5, conversions: 8, score: 10.7, recommendation: "keep" },
+			{
+				creativeId: "ad_1",
+				ctr: 3.0,
+				cpm: 5,
+				frequency: 1.5,
+				conversions: 10,
+				score: 20,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_2",
+				ctr: 1.0,
+				cpm: 5,
+				frequency: 1.5,
+				conversions: 5,
+				score: 3.3,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_3",
+				ctr: 2.0,
+				cpm: 5,
+				frequency: 1.5,
+				conversions: 8,
+				score: 10.7,
+				recommendation: "keep",
+			},
 		];
 
 		const result = classifyCreatives(analyses);
@@ -131,9 +155,33 @@ describe("classifyCreatives", () => {
 
 	it("should classify creatives with below-median CTR and frequency > 3 as losers", () => {
 		const analyses: CreativePerformanceAnalysis[] = [
-			{ creativeId: "ad_1", ctr: 3.0, cpm: 5, frequency: 2, conversions: 10, score: 15, recommendation: "keep" },
-			{ creativeId: "ad_2", ctr: 0.5, cpm: 12, frequency: 4, conversions: 2, score: 0.25, recommendation: "keep" },
-			{ creativeId: "ad_3", ctr: 2.0, cpm: 5, frequency: 2, conversions: 8, score: 8, recommendation: "keep" },
+			{
+				creativeId: "ad_1",
+				ctr: 3.0,
+				cpm: 5,
+				frequency: 2,
+				conversions: 10,
+				score: 15,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_2",
+				ctr: 0.5,
+				cpm: 12,
+				frequency: 4,
+				conversions: 2,
+				score: 0.25,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_3",
+				ctr: 2.0,
+				cpm: 5,
+				frequency: 2,
+				conversions: 8,
+				score: 8,
+				recommendation: "keep",
+			},
 		];
 
 		const result = classifyCreatives(analyses);
@@ -146,9 +194,33 @@ describe("classifyCreatives", () => {
 
 	it("should classify creatives with frequency > 5 as fatigued", () => {
 		const analyses: CreativePerformanceAnalysis[] = [
-			{ creativeId: "ad_1", ctr: 3.0, cpm: 5, frequency: 2, conversions: 10, score: 15, recommendation: "keep" },
-			{ creativeId: "ad_2", ctr: 1.5, cpm: 8, frequency: 6, conversions: 5, score: 1.25, recommendation: "keep" },
-			{ creativeId: "ad_3", ctr: 2.0, cpm: 5, frequency: 7, conversions: 3, score: 0.86, recommendation: "keep" },
+			{
+				creativeId: "ad_1",
+				ctr: 3.0,
+				cpm: 5,
+				frequency: 2,
+				conversions: 10,
+				score: 15,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_2",
+				ctr: 1.5,
+				cpm: 8,
+				frequency: 6,
+				conversions: 5,
+				score: 1.25,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_3",
+				ctr: 2.0,
+				cpm: 5,
+				frequency: 7,
+				conversions: 3,
+				score: 0.86,
+				recommendation: "keep",
+			},
 		];
 
 		const result = classifyCreatives(analyses);
@@ -162,11 +234,51 @@ describe("classifyCreatives", () => {
 	it("should recommend bottom 20% by score for retirement", () => {
 		/* 5 creatives => bottom 20% = 1 creative (ceil(5 * 0.2) = 1) */
 		const analyses: CreativePerformanceAnalysis[] = [
-			{ creativeId: "ad_1", ctr: 3.0, cpm: 5, frequency: 1, conversions: 20, score: 60, recommendation: "keep" },
-			{ creativeId: "ad_2", ctr: 2.5, cpm: 6, frequency: 1.5, conversions: 15, score: 25, recommendation: "keep" },
-			{ creativeId: "ad_3", ctr: 2.0, cpm: 7, frequency: 2, conversions: 10, score: 10, recommendation: "keep" },
-			{ creativeId: "ad_4", ctr: 1.0, cpm: 10, frequency: 3, conversions: 5, score: 1.67, recommendation: "keep" },
-			{ creativeId: "ad_5", ctr: 0.3, cpm: 15, frequency: 4, conversions: 1, score: 0.075, recommendation: "keep" },
+			{
+				creativeId: "ad_1",
+				ctr: 3.0,
+				cpm: 5,
+				frequency: 1,
+				conversions: 20,
+				score: 60,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_2",
+				ctr: 2.5,
+				cpm: 6,
+				frequency: 1.5,
+				conversions: 15,
+				score: 25,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_3",
+				ctr: 2.0,
+				cpm: 7,
+				frequency: 2,
+				conversions: 10,
+				score: 10,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_4",
+				ctr: 1.0,
+				cpm: 10,
+				frequency: 3,
+				conversions: 5,
+				score: 1.67,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_5",
+				ctr: 0.3,
+				cpm: 15,
+				frequency: 4,
+				conversions: 1,
+				score: 0.075,
+				recommendation: "keep",
+			},
 		];
 
 		const result = classifyCreatives(analyses);
@@ -178,8 +290,24 @@ describe("classifyCreatives", () => {
 
 	it("should set recommendation to 'retire' for retirement candidates", () => {
 		const analyses: CreativePerformanceAnalysis[] = [
-			{ creativeId: "ad_1", ctr: 3.0, cpm: 5, frequency: 1, conversions: 20, score: 60, recommendation: "keep" },
-			{ creativeId: "ad_2", ctr: 0.1, cpm: 20, frequency: 5, conversions: 0, score: 0, recommendation: "keep" },
+			{
+				creativeId: "ad_1",
+				ctr: 3.0,
+				cpm: 5,
+				frequency: 1,
+				conversions: 20,
+				score: 60,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_2",
+				ctr: 0.1,
+				cpm: 20,
+				frequency: 5,
+				conversions: 0,
+				score: 0,
+				recommendation: "keep",
+			},
 		];
 
 		const result = classifyCreatives(analyses);
@@ -191,9 +319,33 @@ describe("classifyCreatives", () => {
 
 	it("should set recommendation to 'rotate' for fatigued non-retirement creatives", () => {
 		const analyses: CreativePerformanceAnalysis[] = [
-			{ creativeId: "ad_1", ctr: 3.0, cpm: 5, frequency: 1, conversions: 20, score: 60, recommendation: "keep" },
-			{ creativeId: "ad_2", ctr: 2.0, cpm: 7, frequency: 6, conversions: 15, score: 5, recommendation: "keep" },
-			{ creativeId: "ad_3", ctr: 1.5, cpm: 8, frequency: 2, conversions: 10, score: 7.5, recommendation: "keep" },
+			{
+				creativeId: "ad_1",
+				ctr: 3.0,
+				cpm: 5,
+				frequency: 1,
+				conversions: 20,
+				score: 60,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_2",
+				ctr: 2.0,
+				cpm: 7,
+				frequency: 6,
+				conversions: 15,
+				score: 5,
+				recommendation: "keep",
+			},
+			{
+				creativeId: "ad_3",
+				ctr: 1.5,
+				cpm: 8,
+				frequency: 2,
+				conversions: 10,
+				score: 7.5,
+				recommendation: "keep",
+			},
 		];
 
 		const result = classifyCreatives(analyses);
@@ -205,7 +357,15 @@ describe("classifyCreatives", () => {
 
 	it("should handle single creative input", () => {
 		const analyses: CreativePerformanceAnalysis[] = [
-			{ creativeId: "ad_1", ctr: 2.0, cpm: 5, frequency: 2, conversions: 10, score: 10, recommendation: "keep" },
+			{
+				creativeId: "ad_1",
+				ctr: 2.0,
+				cpm: 5,
+				frequency: 2,
+				conversions: 10,
+				score: 10,
+				recommendation: "keep",
+			},
 		];
 
 		const result = classifyCreatives(analyses);

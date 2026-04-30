@@ -11,23 +11,23 @@
  * consistent, typed interface.
  */
 
-import type { MetaClientConfig } from "./types.js";
-import { AuthError, CliError } from "./errors.js";
-import { CLIWrapper } from "./cli/wrapper.js";
-import { AuthCommands } from "./cli/commands/auth.js";
-import { CampaignCommands } from "./cli/commands/campaigns.js";
-import { AdSetCommands } from "./cli/commands/adsets.js";
-import { AdCommands } from "./cli/commands/ads.js";
-import { CreativeCommands } from "./cli/commands/creatives.js";
-import { InsightsCommands } from "./cli/commands/insights.js";
-import { CatalogCommands } from "./cli/commands/catalogs.js";
-import { DatasetCommands } from "./cli/commands/datasets.js";
 import { ApiClient } from "./api/client.js";
 import { AudienceEndpoints } from "./api/endpoints/audiences.js";
 import { BatchEndpoints } from "./api/endpoints/batch.js";
-import { SplitTestEndpoints } from "./api/endpoints/split-tests.js";
-import { RulesEndpoints } from "./api/endpoints/rules.js";
 import { PreviewEndpoints } from "./api/endpoints/previews.js";
+import { RulesEndpoints } from "./api/endpoints/rules.js";
+import { SplitTestEndpoints } from "./api/endpoints/split-tests.js";
+import { AdCommands } from "./cli/commands/ads.js";
+import { AdSetCommands } from "./cli/commands/adsets.js";
+import { AuthCommands } from "./cli/commands/auth.js";
+import { CampaignCommands } from "./cli/commands/campaigns.js";
+import { CatalogCommands } from "./cli/commands/catalogs.js";
+import { CreativeCommands } from "./cli/commands/creatives.js";
+import { DatasetCommands } from "./cli/commands/datasets.js";
+import { InsightsCommands } from "./cli/commands/insights.js";
+import { CLIWrapper } from "./cli/wrapper.js";
+import { AuthError, CliError } from "./errors.js";
+import type { MetaClientConfig } from "./types.js";
 
 /**
  * Unified Meta advertising client combining CLI wrapper and direct API access.

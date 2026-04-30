@@ -6,9 +6,9 @@
  * update fails.
  */
 
-import { describe, it, expect, vi } from "vitest";
-import { createReallocateBudgetTool } from "../../../tools/budget/reallocate-budget.js";
+import { describe, expect, it, vi } from "vitest";
 import type { GuardrailConfig } from "../../../decisions/types.js";
+import { createReallocateBudgetTool } from "../../../tools/budget/reallocate-budget.js";
 import type { ToolContext } from "../../../tools/types.js";
 
 /** Permissive guardrails for reallocation-specific tests. */
@@ -36,7 +36,8 @@ describe("reallocate_budget atomic execution", () => {
 
 		const client = {
 			campaigns: {
-				get: vi.fn()
+				get: vi
+					.fn()
 					.mockResolvedValueOnce({
 						id: "source",
 						name: "Source Campaign",
@@ -92,7 +93,8 @@ describe("reallocate_budget atomic execution", () => {
 
 		const client = {
 			campaigns: {
-				get: vi.fn()
+				get: vi
+					.fn()
 					.mockResolvedValueOnce({
 						id: "source",
 						name: "Source Campaign",
@@ -144,8 +146,8 @@ describe("reallocate_budget atomic execution", () => {
 		);
 
 		expect(result.success).toBe(false);
-		expect(result.data!.rolledBack).toBe(true);
-		expect(result.data!.sourceBudgetRestored).toBe(200);
+		expect(result.data?.rolledBack).toBe(true);
+		expect(result.data?.sourceBudgetRestored).toBe(200);
 		expect(result.message).toContain("rolled back");
 		expect(result.message).toContain("rate limit");
 
@@ -162,7 +164,8 @@ describe("reallocate_budget atomic execution", () => {
 
 		const client = {
 			campaigns: {
-				get: vi.fn()
+				get: vi
+					.fn()
 					.mockResolvedValueOnce({
 						id: "source",
 						name: "Source Campaign",
@@ -212,7 +215,7 @@ describe("reallocate_budget atomic execution", () => {
 		);
 
 		expect(result.success).toBe(false);
-		expect(result.data!.rollbackFailed).toBe(true);
+		expect(result.data?.rollbackFailed).toBe(true);
 		expect(result.message).toContain("CRITICAL");
 		expect(result.message).toContain("Manual intervention required");
 	});
@@ -220,7 +223,8 @@ describe("reallocate_budget atomic execution", () => {
 	it("should log before and after budgets on success", async () => {
 		const client = {
 			campaigns: {
-				get: vi.fn()
+				get: vi
+					.fn()
 					.mockResolvedValueOnce({
 						id: "source",
 						name: "Source Campaign",
@@ -260,8 +264,8 @@ describe("reallocate_budget atomic execution", () => {
 		expect(result.success).toBe(true);
 
 		/* Verify before/after budgets are logged in data */
-		const source = result.data!.source as { name: string; before: number; after: number };
-		const destination = result.data!.destination as { name: string; before: number; after: number };
+		const source = result.data?.source as { name: string; before: number; after: number };
+		const destination = result.data?.destination as { name: string; before: number; after: number };
 
 		expect(source.name).toBe("Source Campaign");
 		expect(source.before).toBe(150);
@@ -275,7 +279,8 @@ describe("reallocate_budget atomic execution", () => {
 	it("should skip API calls in dry-run mode", async () => {
 		const client = {
 			campaigns: {
-				get: vi.fn()
+				get: vi
+					.fn()
 					.mockResolvedValueOnce({
 						id: "source",
 						name: "Source Campaign",
@@ -313,7 +318,7 @@ describe("reallocate_budget atomic execution", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.data!.dryRun).toBe(true);
+		expect(result.data?.dryRun).toBe(true);
 		expect(client.campaigns.update).not.toHaveBeenCalled();
 	});
 });

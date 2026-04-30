@@ -7,7 +7,7 @@
  * story specifications.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolResult } from "../types.js";
 import type { CreativeToolContext } from "./types.js";
@@ -38,14 +38,10 @@ const CreateAdCreativeParams = Type.Object({
 	linkUrl: Type.String({ description: "Destination URL for the ad" }),
 
 	/** Public URL of the ad image (mutually exclusive with imageHash). */
-	imageUrl: Type.Optional(
-		Type.String({ description: "Public image URL" }),
-	),
+	imageUrl: Type.Optional(Type.String({ description: "Public image URL" })),
 
 	/** Hash of a previously uploaded image asset (mutually exclusive with imageUrl). */
-	imageHash: Type.Optional(
-		Type.String({ description: "Pre-uploaded image hash" }),
-	),
+	imageHash: Type.Optional(Type.String({ description: "Pre-uploaded image hash" })),
 });
 
 /** Inferred TypeScript type for create-ad-creative parameters. */
@@ -60,7 +56,10 @@ type CreateAdCreativeInput = Static<typeof CreateAdCreativeParams>;
  */
 function generateCreativeName(headline: string, timestamp: string): string {
 	const dateSlug = timestamp.slice(0, 10);
-	const slug = headline.slice(0, 30).replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+	const slug = headline
+		.slice(0, 30)
+		.replace(/[^a-zA-Z0-9]+/g, "-")
+		.toLowerCase();
 	return `creative-${slug}-${dateSlug}`;
 }
 
@@ -136,6 +135,7 @@ export const createAdCreativeTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to create ad creative: ${message}`,
 				message: `Failed to create ad creative: ${message}`,
 			};
 		}

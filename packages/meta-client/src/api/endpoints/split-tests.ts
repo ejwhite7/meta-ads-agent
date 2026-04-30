@@ -9,11 +9,7 @@
  * direct API calls to the campaign-level split test endpoints.
  */
 
-import type {
-	SplitTest,
-	SplitTestResults,
-	CreateSplitTestParams,
-} from "../../types.js";
+import type { CreateSplitTestParams, SplitTest, SplitTestResults } from "../../types.js";
 import type { ApiClient, ApiResponse } from "../client.js";
 
 /**
@@ -86,14 +82,11 @@ export class SplitTestEndpoints {
 	 * @returns Array of split tests.
 	 */
 	async list(adAccountId: string): Promise<SplitTest[]> {
-		const response = await this.api.get<ApiResponse<SplitTest[]>>(
-			`/${adAccountId}/ad_studies`,
-			{
-				params: {
-					fields: "id,name,status,type,cells,start_time,end_time",
-				},
+		const response = await this.api.get<ApiResponse<SplitTest[]>>(`/${adAccountId}/ad_studies`, {
+			params: {
+				fields: "id,name,status,type,cells,start_time,end_time",
 			},
-		);
+		});
 		return response.data;
 	}
 

@@ -7,7 +7,7 @@
  * retargeting audiences, and lookalike audiences for prospecting.
  */
 
-import type { CustomAudience, CreateAudienceParams, CreateLookalikeParams } from "../../types.js";
+import type { CreateAudienceParams, CreateLookalikeParams, CustomAudience } from "../../types.js";
 import type { ApiClient, ApiResponse } from "../client.js";
 
 /**

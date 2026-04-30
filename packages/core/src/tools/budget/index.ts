@@ -30,3 +30,40 @@ export { createOptimizeBidsTool } from "./optimize-bids.js";
 
 export { createProjectSpendTool } from "./project-spend.js";
 export type { ProjectionConfidence } from "./project-spend.js";
+
+import type { MetaClient } from "@meta-ads-agent/meta-client";
+import type { TObject } from "@sinclair/typebox";
+import type { AgentGoal } from "../../types.js";
+import type { Tool } from "../types.js";
+import { createGetBudgetStatusTool } from "./get-budget-status.js";
+import { createGetPacingAlertsTool } from "./get-pacing-alerts.js";
+import { createOptimizeBidsTool } from "./optimize-bids.js";
+import { createProjectSpendTool } from "./project-spend.js";
+import { createReallocateBudgetTool } from "./reallocate-budget.js";
+import { createSetBudgetTool } from "./set-budget.js";
+
+/**
+ * Factory that creates all budget tools given a MetaClient-like instance.
+ *
+ * @param metaClient - A MetaClient (or compatible) instance for API calls
+ * @returns Array of all budget tools ready for registration
+ */
+export function createBudgetTools(
+	metaClient: MetaClient,
+	goals?: AgentGoal,
+): ReadonlyArray<Tool<TObject>> {
+	const defaultGoals: AgentGoal = goals ?? {
+		roasTarget: 3.0,
+		cpaCap: 50,
+		dailyBudgetLimit: 10000,
+		riskLevel: "moderate",
+	};
+	return [
+		createGetBudgetStatusTool(metaClient),
+		createGetPacingAlertsTool(metaClient),
+		createSetBudgetTool(metaClient),
+		createReallocateBudgetTool(metaClient),
+		createOptimizeBidsTool(metaClient, defaultGoals),
+		createProjectSpendTool(metaClient),
+	] as ReadonlyArray<Tool<TObject>>;
+}

@@ -10,13 +10,13 @@
 import type {
 	Catalog,
 	CreateCatalogParams,
-	UpdateCatalogParams,
-	ProductSet,
-	CreateProductSetParams,
-	UpdateProductSetParams,
-	ProductItem,
 	CreateProductItemParams,
+	CreateProductSetParams,
+	ProductItem,
+	ProductSet,
+	UpdateCatalogParams,
 	UpdateProductItemParams,
+	UpdateProductSetParams,
 } from "../../types.js";
 import type { CLIWrapper } from "../wrapper.js";
 
@@ -150,10 +150,7 @@ export class CatalogCommands {
 	 * @param params - Product set creation parameters.
 	 * @returns The newly created product set.
 	 */
-	async createProductSet(
-		catalogId: string,
-		params: CreateProductSetParams,
-	): Promise<ProductSet> {
+	async createProductSet(catalogId: string, params: CreateProductSetParams): Promise<ProductSet> {
 		return this.cli.run<ProductSet>("product-sets", "create", {
 			"catalog-id": catalogId,
 			name: params.name,

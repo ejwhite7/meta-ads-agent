@@ -10,8 +10,8 @@
  * or ads simultaneously.
  */
 
-import type { BatchRequest, BatchResponse } from "../../types.js";
 import { MetaError } from "../../errors.js";
+import type { BatchRequest, BatchResponse } from "../../types.js";
 import type { ApiClient } from "../client.js";
 
 /** Maximum number of operations allowed in a single batch request. */
@@ -59,8 +59,7 @@ export class BatchEndpoints {
 
 		if (requests.length > MAX_BATCH_SIZE) {
 			throw new MetaError(
-				`Batch size ${requests.length} exceeds maximum of ${MAX_BATCH_SIZE}. ` +
-					"Split the requests into multiple batches.",
+				`Batch size ${requests.length} exceeds maximum of ${MAX_BATCH_SIZE}. Split the requests into multiple batches.`,
 				"BATCH_SIZE_EXCEEDED",
 			);
 		}
@@ -107,10 +106,7 @@ export class BatchEndpoints {
 	 * Maps batch API responses back to the original requests, preserving
 	 * the name field from the request for correlation.
 	 */
-	private mapResponses(
-		requests: BatchRequest[],
-		responses: BatchResponse[],
-	): BatchResponse[] {
+	private mapResponses(requests: BatchRequest[], responses: BatchResponse[]): BatchResponse[] {
 		return responses.map((response, index) => ({
 			...response,
 			name: response.name ?? requests[index]?.name,

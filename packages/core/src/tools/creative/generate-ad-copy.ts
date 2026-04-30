@@ -12,10 +12,10 @@
  * - Compliant CTA labels from Meta's approved list
  */
 
-import { Type, type Static } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolResult } from "../types.js";
-import type { CreativeToolContext, AdCopyVariation } from "./types.js";
+import type { AdCopyVariation, CreativeToolContext } from "./types.js";
 
 /**
  * TypeBox schema for generate-ad-copy parameters.
@@ -28,7 +28,9 @@ const GenerateAdCopyParams = Type.Object({
 	productName: Type.String({ description: "Name of the product or service" }),
 
 	/** Description of the product including key features and benefits. */
-	productDescription: Type.String({ description: "Product description with key features and benefits" }),
+	productDescription: Type.String({
+		description: "Product description with key features and benefits",
+	}),
 
 	/** Target audience description (demographics, interests, behaviors). */
 	targetAudience: Type.String({ description: "Target audience description" }),
@@ -46,11 +48,7 @@ const GenerateAdCopyParams = Type.Object({
 
 	/** Ad format that influences copy structure and length. */
 	format: Type.Union(
-		[
-			Type.Literal("single_image"),
-			Type.Literal("carousel"),
-			Type.Literal("video"),
-		],
+		[Type.Literal("single_image"), Type.Literal("carousel"), Type.Literal("video")],
 		{ description: "Ad format type" },
 	),
 
@@ -200,6 +198,7 @@ export const generateAdCopyTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to generate ad copy: ${message}`,
 				message: `Failed to generate ad copy: ${message}`,
 			};
 		}

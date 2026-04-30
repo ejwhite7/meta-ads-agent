@@ -12,7 +12,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { createTool, type ToolResult } from "../types.js";
+import { type ToolResult, createTool } from "../types.js";
 
 /**
  * Tool: ab_test_campaign
@@ -22,113 +22,116 @@ import { createTool, type ToolResult } from "../types.js";
  * Returns a split test ID for subsequent monitoring.
  */
 export const abTestCampaignTool = createTool({
-  name: "ab_test_campaign",
-  description:
-    "Create an A/B split test to compare campaign structures by creative, " +
-    "audience, or placement. Uses Meta's split test API and returns a test ID " +
-    "for monitoring.",
-  parameters: Type.Object({
-    adAccountId: Type.String({
-      description: "Meta ad account ID (format: act_XXXXXXXXXX)",
-    }),
-    name: Type.String({
-      description: "Name for the split test",
-    }),
-    testVariable: Type.Union(
-      [
-        Type.Literal("CREATIVE"),
-        Type.Literal("AUDIENCE"),
-        Type.Literal("PLACEMENT"),
-      ],
-      {
-        description:
-          "The variable being tested: CREATIVE (different ad creatives), " +
-          "AUDIENCE (different target audiences), or PLACEMENT (different ad placements)",
-      },
-    ),
-    duration: Type.Number({
-      minimum: 1,
-      maximum: 30,
-      description: "Test duration in days (1-30)",
-    }),
-    budget: Type.Number({
-      minimum: 1,
-      description: "Total test budget in account currency",
-    }),
-  }),
-  async execute(params, context): Promise<ToolResult> {
-    const { adAccountId, name, testVariable, duration, budget } = params;
+	name: "ab_test_campaign",
+	description:
+		"Create an A/B split test to compare campaign structures by creative, " +
+		"audience, or placement. Uses Meta's split test API and returns a test ID " +
+		"for monitoring.",
+	parameters: Type.Object({
+		adAccountId: Type.String({
+			description: "Meta ad account ID (format: act_XXXXXXXXXX)",
+		}),
+		name: Type.String({
+			description: "Name for the split test",
+		}),
+		testVariable: Type.Union(
+			[Type.Literal("CREATIVE"), Type.Literal("AUDIENCE"), Type.Literal("PLACEMENT")],
+			{
+				description:
+					"The variable being tested: CREATIVE (different ad creatives), " +
+					"AUDIENCE (different target audiences), or PLACEMENT (different ad placements)",
+			},
+		),
+		duration: Type.Number({
+			minimum: 1,
+			maximum: 30,
+			description: "Test duration in days (1-30)",
+		}),
+		budget: Type.Number({
+			minimum: 1,
+			description: "Total test budget in account currency",
+		}),
+	}),
+	async execute(params, context): Promise<ToolResult> {
+		const { adAccountId, name, testVariable, duration, budget } = params;
 
-    try {
-      /* ------------------------------------------------------------------
-       * Step 1: Validate test name
-       * ----------------------------------------------------------------*/
-      const trimmedName = name.trim();
-      if (trimmedName.length === 0) {
-        return {
-          success: false,
-          error: "Split test name must not be empty",
-          errorCode: "VALIDATION_ERROR",
-        };
-      }
+		try {
+			/* ------------------------------------------------------------------
+			 * Step 1: Validate test name
+			 * ----------------------------------------------------------------*/
+			const trimmedName = name.trim();
+			if (trimmedName.length === 0) {
+				return {
+					success: false,
+					data: null,
+					error: "Split test name must not be empty",
+					message: "Split test name must not be empty",
+					errorCode: "VALIDATION_ERROR",
+				};
+			}
 
-      /* ------------------------------------------------------------------
-       * Step 2: Validate budget against guardrail minimum
-       * ----------------------------------------------------------------*/
-      if (budget < context.guardrails.minDailyBudget) {
-        return {
-          success: false,
-          error:
-            `Test budget $${budget.toFixed(2)} is below the minimum ` +
-            `of $${context.guardrails.minDailyBudget.toFixed(2)}`,
-          errorCode: "GUARDRAIL_MIN_BUDGET_VIOLATED",
-        };
-      }
+			/* ------------------------------------------------------------------
+			 * Step 2: Validate budget against guardrail minimum
+			 * ----------------------------------------------------------------*/
+			if (budget < context.guardrails.minDailyBudget) {
+				return {
+					success: false,
+					data: null,
+					error:
+						`Test budget $${budget.toFixed(2)} is below the minimum ` +
+						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+					message:
+						`Test budget $${budget.toFixed(2)} is below the minimum ` +
+						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+					errorCode: "GUARDRAIL_MIN_BUDGET_VIOLATED",
+				};
+			}
 
-      /* ------------------------------------------------------------------
-       * Step 3: Create the split test via Meta direct API
-       * ----------------------------------------------------------------*/
-      const splitTest = await context.metaClient.splitTests.create({
-        name: trimmedName,
-        adAccountId,
-        testVariable,
-        budget,
-        duration,
-      });
+			/* ------------------------------------------------------------------
+			 * Step 3: Create the split test via Meta direct API
+			 * ----------------------------------------------------------------*/
+			const splitTest = await context.metaClient.splitTests.create({
+				name: trimmedName,
+				adAccountId,
+				testVariable,
+				budget,
+				duration,
+			});
 
-      /* ------------------------------------------------------------------
-       * Step 4: Audit log
-       * ----------------------------------------------------------------*/
-      await context.auditLogger.record({
-        toolName: "ab_test_campaign",
-        toolParams: { adAccountId, name: trimmedName, testVariable, duration, budget },
-        outcome:
-          `Created A/B split test '${trimmedName}' (ID: ${splitTest.id}). ` +
-          `Variable: ${testVariable}, duration: ${duration} days, ` +
-          `budget: $${budget.toFixed(2)}`,
-        timestamp: new Date().toISOString(),
-      });
+			/* ------------------------------------------------------------------
+			 * Step 4: Audit log
+			 * ----------------------------------------------------------------*/
+			await context.auditLogger.record({
+				toolName: "ab_test_campaign",
+				toolParams: { adAccountId, name: trimmedName, testVariable, duration, budget },
+				outcome:
+					`Created A/B split test '${trimmedName}' (ID: ${splitTest.id}). ` +
+					`Variable: ${testVariable}, duration: ${duration} days, ` +
+					`budget: $${budget.toFixed(2)}`,
+				timestamp: new Date().toISOString(),
+			});
 
-      return {
-        success: true,
-        data: {
-          splitTestId: splitTest.id,
-          name: trimmedName,
-          testVariable,
-          duration,
-          budget,
-          status: splitTest.status,
-        },
-      };
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error creating split test";
+			return {
+				success: true,
+				data: {
+					splitTestId: splitTest.id,
+					name: trimmedName,
+					testVariable,
+					duration,
+					budget,
+					status: splitTest.status,
+				},
+			};
+		} catch (error: unknown) {
+			const message = error instanceof Error ? error.message : "Unknown error creating split test";
 
-      return {
-        success: false,
-        error: `Failed to create A/B test '${name}': ${message}`,
-        errorCode: "META_API_ERROR",
-      };
-    }
-  },
+			return {
+				success: false,
+				data: null,
+				error: `Failed to create A/B test '${name}': ${message}`,
+				message: `Failed to create A/B test '${name}': ${message}`,
+				errorCode: "META_API_ERROR",
+			};
+		}
+	},
 });

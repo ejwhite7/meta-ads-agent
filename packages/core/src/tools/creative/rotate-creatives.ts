@@ -10,7 +10,7 @@
  * of the pool is reached, wraps back to the first creative.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolResult } from "../types.js";
 import type { CreativeToolContext, RotationState } from "./types.js";
@@ -113,6 +113,7 @@ export const rotateCreativesTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: "Rotation requires at least 2 creatives in the pool.",
 				message: "Rotation requires at least 2 creatives in the pool.",
 			};
 		}
@@ -127,7 +128,7 @@ export const rotateCreativesTool = createTool({
 
 		try {
 			/* Retrieve or initialize rotation state */
-			let state = getRotationState(params.adSetId);
+			const state = getRotationState(params.adSetId);
 			let previousCreativeId: string;
 			let newIndex: number;
 
@@ -193,6 +194,7 @@ export const rotateCreativesTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to rotate creatives: ${message}`,
 				message: `Failed to rotate creatives: ${message}`,
 			};
 		}

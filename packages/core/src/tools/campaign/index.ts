@@ -21,15 +21,16 @@
  * | `analyze_performance` | Orient     | Analyze performance vs. goals                 |
  */
 
-import { type Tool } from "../types.js";
+import type { TObject } from "@sinclair/typebox";
+import type { Tool } from "../types.js";
 
+import { abTestCampaignTool } from "./ab-test-campaign.js";
+import { analyzePerformanceTool } from "./analyze-performance.js";
+import { createCampaignTool } from "./create-campaign.js";
+import { duplicateCampaignTool } from "./duplicate-campaign.js";
 import { listCampaignsTool } from "./list-campaigns.js";
 import { pauseCampaignTool } from "./pause-campaign.js";
 import { scaleCampaignTool } from "./scale-campaign.js";
-import { createCampaignTool } from "./create-campaign.js";
-import { duplicateCampaignTool } from "./duplicate-campaign.js";
-import { abTestCampaignTool } from "./ab-test-campaign.js";
-import { analyzePerformanceTool } from "./analyze-performance.js";
 
 /* Re-export individual tools for selective imports. */
 export { listCampaignsTool } from "./list-campaigns.js";
@@ -52,12 +53,12 @@ export { analyzePerformanceTool } from "./analyze-performance.js";
  * }
  * ```
  */
-export const campaignTools: ReadonlyArray<Tool> = [
-  listCampaignsTool,
-  pauseCampaignTool,
-  scaleCampaignTool,
-  createCampaignTool,
-  duplicateCampaignTool,
-  abTestCampaignTool,
-  analyzePerformanceTool,
-];
+export const campaignTools: ReadonlyArray<Tool<TObject>> = [
+	listCampaignsTool,
+	pauseCampaignTool,
+	scaleCampaignTool,
+	createCampaignTool,
+	duplicateCampaignTool,
+	abTestCampaignTool,
+	analyzePerformanceTool,
+] as ReadonlyArray<Tool<TObject>>;

@@ -6,12 +6,12 @@
  * at each sensitivity level (low, medium, high).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { detectAnomalies } from "../../../tools/reporting/detect-anomalies.js";
 import type {
-	ReportingToolContext,
-	InsightsResultLike,
 	CampaignInfo,
+	InsightsResultLike,
+	ReportingToolContext,
 } from "../../../tools/reporting/types.js";
 
 /** Creates a mock ReportingToolContext with configurable MetaClient responses. */
@@ -20,7 +20,8 @@ function createMockContext(overrides: {
 	todayInsights?: InsightsResultLike[];
 	baselineInsights?: InsightsResultLike[];
 }): ReportingToolContext {
-	const queryFn = vi.fn()
+	const queryFn = vi
+		.fn()
 		.mockResolvedValueOnce(overrides.todayInsights ?? [])
 		.mockResolvedValueOnce(overrides.baselineInsights ?? []);
 
@@ -55,9 +56,7 @@ function createBaselineInsight(overrides: Partial<InsightsResultLike> = {}): Ins
 		ctr: "0.10",
 		cpm: "10.00",
 		cpc: "0.10",
-		actions: [
-			{ action_type: "purchase", value: "70" },
-		],
+		actions: [{ action_type: "purchase", value: "70" }],
 		date_start: "2024-01-01",
 		date_stop: "2024-01-07",
 		...overrides,
@@ -75,9 +74,7 @@ function createTodayInsight(overrides: Partial<InsightsResultLike> = {}): Insigh
 		ctr: "0.10",
 		cpm: "10.00",
 		cpc: "0.10",
-		actions: [
-			{ action_type: "purchase", value: "10" },
-		],
+		actions: [{ action_type: "purchase", value: "10" }],
 		date_start: "2024-01-08",
 		date_stop: "2024-01-08",
 		...overrides,
@@ -139,7 +136,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const cpaSpike = anomalies.find((a) => a.type === "CPA_SPIKE");
 			expect(cpaSpike).toBeDefined();
 		});
@@ -158,7 +157,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const cpaSpike = anomalies.find((a) => a.type === "CPA_SPIKE");
 			expect(cpaSpike).toBeDefined();
 		});
@@ -177,7 +178,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const cpaSpike = anomalies.find((a) => a.type === "CPA_SPIKE");
 			expect(cpaSpike).toBeUndefined();
 		});
@@ -198,7 +201,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const ctrDrop = anomalies.find((a) => a.type === "CTR_DROP");
 			expect(ctrDrop).toBeDefined();
 		});
@@ -217,7 +222,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const ctrDrop = anomalies.find((a) => a.type === "CTR_DROP");
 			expect(ctrDrop).toBeUndefined();
 		});
@@ -238,7 +245,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const delivery = anomalies.find((a) => a.type === "DELIVERY_ISSUE");
 			expect(delivery).toBeDefined();
 		});
@@ -273,7 +282,9 @@ describe("detectAnomalies", () => {
 			vi.stubGlobal("Date", originalDate);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const exhaustion = anomalies.find((a) => a.type === "BUDGET_EXHAUSTION");
 			expect(exhaustion).toBeDefined();
 		});
@@ -300,7 +311,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const collapse = anomalies.find((a) => a.type === "CONVERSION_COLLAPSE");
 			expect(collapse).toBeDefined();
 		});
@@ -324,7 +337,9 @@ describe("detectAnomalies", () => {
 			);
 
 			expect(result.success).toBe(true);
-			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{ type: string }>;
+			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
+				type: string;
+			}>;
 			const collapse = anomalies.find((a) => a.type === "CONVERSION_COLLAPSE");
 			expect(collapse).toBeUndefined();
 		});
@@ -356,7 +371,8 @@ describe("detectAnomalies", () => {
 				ctx2,
 			);
 
-			const highAnomalies = (highResult.data as Record<string, unknown>).anomalies as Array<unknown>;
+			const highAnomalies = (highResult.data as Record<string, unknown>)
+				.anomalies as Array<unknown>;
 			const lowAnomalies = (lowResult.data as Record<string, unknown>).anomalies as Array<unknown>;
 
 			expect(highAnomalies.length).toBeGreaterThanOrEqual(lowAnomalies.length);

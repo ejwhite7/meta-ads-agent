@@ -14,19 +14,19 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { createTool, type ToolResult } from "../types.js";
+import { type ToolResult, createTool } from "../types.js";
 
 /**
  * Valid Meta campaign objectives.
  * @see https://developers.facebook.com/docs/marketing-api/reference/ad-campaign-group#objectives
  */
 const VALID_OBJECTIVES = [
-  "OUTCOME_AWARENESS",
-  "OUTCOME_ENGAGEMENT",
-  "OUTCOME_LEADS",
-  "OUTCOME_SALES",
-  "OUTCOME_TRAFFIC",
-  "OUTCOME_APP_PROMOTION",
+	"OUTCOME_AWARENESS",
+	"OUTCOME_ENGAGEMENT",
+	"OUTCOME_LEADS",
+	"OUTCOME_SALES",
+	"OUTCOME_TRAFFIC",
+	"OUTCOME_APP_PROMOTION",
 ] as const;
 
 /**
@@ -37,131 +37,139 @@ const VALID_OBJECTIVES = [
  * created campaign ID on success.
  */
 export const createCampaignTool = createTool({
-  name: "create_campaign",
-  description:
-    "Create a new Meta campaign with the specified objective and daily budget. " +
-    "Validates inputs (non-empty name, budget >= $5, valid objective) before creation.",
-  parameters: Type.Object({
-    adAccountId: Type.String({
-      description: "Meta ad account ID (format: act_XXXXXXXXXX)",
-    }),
-    name: Type.String({
-      description: "Campaign name (must be non-empty)",
-    }),
-    objective: Type.Union(
-      [
-        Type.Literal("OUTCOME_AWARENESS"),
-        Type.Literal("OUTCOME_ENGAGEMENT"),
-        Type.Literal("OUTCOME_LEADS"),
-        Type.Literal("OUTCOME_SALES"),
-        Type.Literal("OUTCOME_TRAFFIC"),
-        Type.Literal("OUTCOME_APP_PROMOTION"),
-      ],
-      {
-        description: "Meta campaign objective",
-      },
-    ),
-    dailyBudget: Type.Number({
-      minimum: 1,
-      description: "Daily budget in account currency (e.g. 50.00 for $50/day)",
-    }),
-    status: Type.Union(
-      [Type.Literal("ACTIVE"), Type.Literal("PAUSED")],
-      {
-        default: "PAUSED",
-        description:
-          "Initial campaign status. Defaults to PAUSED for safety — " +
-          "activate after review.",
-      },
-    ),
-  }),
-  async execute(params, context): Promise<ToolResult> {
-    const { adAccountId, name, objective, dailyBudget, status } = params;
-    const initialStatus = status ?? "PAUSED";
+	name: "create_campaign",
+	description:
+		"Create a new Meta campaign with the specified objective and daily budget. " +
+		"Validates inputs (non-empty name, budget >= $5, valid objective) before creation.",
+	parameters: Type.Object({
+		adAccountId: Type.String({
+			description: "Meta ad account ID (format: act_XXXXXXXXXX)",
+		}),
+		name: Type.String({
+			description: "Campaign name (must be non-empty)",
+		}),
+		objective: Type.Union(
+			[
+				Type.Literal("OUTCOME_AWARENESS"),
+				Type.Literal("OUTCOME_ENGAGEMENT"),
+				Type.Literal("OUTCOME_LEADS"),
+				Type.Literal("OUTCOME_SALES"),
+				Type.Literal("OUTCOME_TRAFFIC"),
+				Type.Literal("OUTCOME_APP_PROMOTION"),
+			],
+			{
+				description: "Meta campaign objective",
+			},
+		),
+		dailyBudget: Type.Number({
+			minimum: 1,
+			description: "Daily budget in account currency (e.g. 50.00 for $50/day)",
+		}),
+		status: Type.Union([Type.Literal("ACTIVE"), Type.Literal("PAUSED")], {
+			default: "PAUSED",
+			description:
+				"Initial campaign status. Defaults to PAUSED for safety — " + "activate after review.",
+		}),
+	}),
+	async execute(params, context): Promise<ToolResult> {
+		const { adAccountId, name, objective, dailyBudget, status } = params;
+		const initialStatus = status ?? "PAUSED";
 
-    try {
-      /* ------------------------------------------------------------------
-       * Step 1: Validate campaign name
-       * ----------------------------------------------------------------*/
-      const trimmedName = name.trim();
-      if (trimmedName.length === 0) {
-        return {
-          success: false,
-          error: "Campaign name must not be empty",
-          errorCode: "VALIDATION_ERROR",
-        };
-      }
+		try {
+			/* ------------------------------------------------------------------
+			 * Step 1: Validate campaign name
+			 * ----------------------------------------------------------------*/
+			const trimmedName = name.trim();
+			if (trimmedName.length === 0) {
+				return {
+					success: false,
+					data: null,
+					error: "Campaign name must not be empty",
+					message: "Campaign name must not be empty",
+					errorCode: "VALIDATION_ERROR",
+				};
+			}
 
-      /* ------------------------------------------------------------------
-       * Step 2: Validate budget against guardrail minimum
-       * ----------------------------------------------------------------*/
-      if (dailyBudget < context.guardrails.minDailyBudget) {
-        return {
-          success: false,
-          error:
-            `Daily budget $${dailyBudget.toFixed(2)} is below the minimum ` +
-            `of $${context.guardrails.minDailyBudget.toFixed(2)}`,
-          errorCode: "GUARDRAIL_MIN_BUDGET_VIOLATED",
-        };
-      }
+			/* ------------------------------------------------------------------
+			 * Step 2: Validate budget against guardrail minimum
+			 * ----------------------------------------------------------------*/
+			if (dailyBudget < context.guardrails.minDailyBudget) {
+				return {
+					success: false,
+					data: null,
+					error:
+						`Daily budget $${dailyBudget.toFixed(2)} is below the minimum ` +
+						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+					message:
+						`Daily budget $${dailyBudget.toFixed(2)} is below the minimum ` +
+						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+					errorCode: "GUARDRAIL_MIN_BUDGET_VIOLATED",
+				};
+			}
 
-      /* ------------------------------------------------------------------
-       * Step 3: Validate objective
-       * ----------------------------------------------------------------*/
-      if (
-        !(VALID_OBJECTIVES as readonly string[]).includes(objective)
-      ) {
-        return {
-          success: false,
-          error:
-            `Invalid objective '${objective}'. Valid objectives: ${VALID_OBJECTIVES.join(", ")}`,
-          errorCode: "VALIDATION_ERROR",
-        };
-      }
+			/* ------------------------------------------------------------------
+			 * Step 3: Validate objective
+			 * ----------------------------------------------------------------*/
+			if (!(VALID_OBJECTIVES as readonly string[]).includes(objective)) {
+				return {
+					success: false,
+					data: null,
+					error: `Invalid objective '${objective}'. Valid objectives: ${VALID_OBJECTIVES.join(", ")}`,
+					message: `Invalid objective '${objective}'. Valid objectives: ${VALID_OBJECTIVES.join(", ")}`,
+					errorCode: "VALIDATION_ERROR",
+				};
+			}
 
-      /* ------------------------------------------------------------------
-       * Step 4: Create the campaign via Meta API (budget in cents)
-       * ----------------------------------------------------------------*/
-      const budgetInCents = Math.round(dailyBudget * 100);
+			/* ------------------------------------------------------------------
+			 * Step 4: Create the campaign via Meta API (budget in cents)
+			 * ----------------------------------------------------------------*/
+			const budgetInCents = Math.round(dailyBudget * 100);
 
-      const campaign = await context.metaClient.campaigns.create(adAccountId, {
-        name: trimmedName,
-        objective,
-        daily_budget: budgetInCents,
-        status: initialStatus,
-      });
+			const campaign = await context.metaClient.campaigns.create(adAccountId, {
+				name: trimmedName,
+				objective,
+				daily_budget: budgetInCents,
+				status: initialStatus,
+			});
 
-      /* ------------------------------------------------------------------
-       * Step 5: Audit log
-       * ----------------------------------------------------------------*/
-      await context.auditLogger.record({
-        toolName: "create_campaign",
-        toolParams: { adAccountId, name: trimmedName, objective, dailyBudget, status: initialStatus },
-        outcome:
-          `Created campaign '${trimmedName}' (ID: ${campaign.id}) with objective ` +
-          `${objective}, budget $${dailyBudget.toFixed(2)}/day, status ${initialStatus}`,
-        timestamp: new Date().toISOString(),
-      });
+			/* ------------------------------------------------------------------
+			 * Step 5: Audit log
+			 * ----------------------------------------------------------------*/
+			await context.auditLogger.record({
+				toolName: "create_campaign",
+				toolParams: {
+					adAccountId,
+					name: trimmedName,
+					objective,
+					dailyBudget,
+					status: initialStatus,
+				},
+				outcome:
+					`Created campaign '${trimmedName}' (ID: ${campaign.id}) with objective ` +
+					`${objective}, budget $${dailyBudget.toFixed(2)}/day, status ${initialStatus}`,
+				timestamp: new Date().toISOString(),
+			});
 
-      return {
-        success: true,
-        data: {
-          campaignId: campaign.id,
-          name: trimmedName,
-          objective,
-          dailyBudget,
-          status: initialStatus,
-        },
-      };
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error creating campaign";
+			return {
+				success: true,
+				data: {
+					campaignId: campaign.id,
+					name: trimmedName,
+					objective,
+					dailyBudget,
+					status: initialStatus,
+				},
+			};
+		} catch (error: unknown) {
+			const message = error instanceof Error ? error.message : "Unknown error creating campaign";
 
-      return {
-        success: false,
-        error: `Failed to create campaign '${name}': ${message}`,
-        errorCode: "META_API_ERROR",
-      };
-    }
-  },
+			return {
+				success: false,
+				data: null,
+				error: `Failed to create campaign '${name}': ${message}`,
+				message: `Failed to create campaign '${name}': ${message}`,
+				errorCode: "META_API_ERROR",
+			};
+		}
+	},
 });

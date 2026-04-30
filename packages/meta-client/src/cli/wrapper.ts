@@ -10,8 +10,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { CliExitCode } from "../types.js";
 import { AuthError, CliError, NotFoundError } from "../errors.js";
+import { CliExitCode } from "../types.js";
 import type { CliArgs, CliResult, CliWrapperConfig } from "./types.js";
 
 /** Default configuration values for the CLI wrapper. */
@@ -75,8 +75,7 @@ export class CLIWrapper {
 			// Check if the error indicates the binary was not found
 			if (error instanceof Error && error.message.includes("ENOENT")) {
 				throw new CliError(
-					`meta-ads CLI not found at "${this.config.cliPath}". ` +
-						"Install it with: pip install meta-ads",
+					`meta-ads CLI not found at "${this.config.cliPath}". Install it with: pip install meta-ads`,
 					CliExitCode.General,
 					"",
 				);
@@ -123,6 +122,13 @@ export class CLIWrapper {
 			const timer = setTimeout(() => {
 				timedOut = true;
 				proc.kill("SIGTERM");
+				reject(
+					new CliError(
+						`CLI command timed out after ${this.config.timeout}ms: meta ads ${resource} ${action}`,
+						CliExitCode.General,
+						"",
+					),
+				);
 			}, this.config.timeout);
 
 			proc.stdout.on("data", (chunk: Buffer) => {

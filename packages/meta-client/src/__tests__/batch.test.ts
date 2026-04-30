@@ -6,11 +6,11 @@
  * and automatic chunking for large operation sets.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BatchEndpoints } from "../api/endpoints/batch.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client.js";
-import type { BatchRequest, BatchResponse } from "../types.js";
+import { BatchEndpoints } from "../api/endpoints/batch.js";
 import { MetaError } from "../errors.js";
+import type { BatchRequest, BatchResponse } from "../types.js";
 
 /**
  * Creates a mock ApiClient with typed method stubs.
@@ -85,7 +85,12 @@ describe("BatchEndpoints", () => {
 		it("preserves request names in responses", async () => {
 			const requests: BatchRequest[] = [
 				{ method: "GET", relative_url: "/campaign_123", name: "get_campaign" },
-				{ method: "POST", relative_url: "/campaign_456", body: "status=PAUSED", name: "pause_campaign" },
+				{
+					method: "POST",
+					relative_url: "/campaign_456",
+					body: "status=PAUSED",
+					name: "pause_campaign",
+				},
 			];
 
 			const mockResponses: BatchResponse[] = [
@@ -127,9 +132,7 @@ describe("BatchEndpoints", () => {
 				},
 			];
 
-			vi.mocked(api.post).mockResolvedValue([
-				{ code: 200, body: '{"success":true}' },
-			]);
+			vi.mocked(api.post).mockResolvedValue([{ code: 200, body: '{"success":true}' }]);
 
 			await batch.execute(requests);
 

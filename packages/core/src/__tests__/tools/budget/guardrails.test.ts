@@ -6,10 +6,10 @@
  * floor, maximum scale factor ceiling, and human approval thresholds.
  */
 
-import { describe, it, expect, vi } from "vitest";
-import { createSetBudgetTool } from "../../../tools/budget/set-budget.js";
-import { createReallocateBudgetTool } from "../../../tools/budget/reallocate-budget.js";
+import { describe, expect, it, vi } from "vitest";
 import type { GuardrailConfig } from "../../../decisions/types.js";
+import { createReallocateBudgetTool } from "../../../tools/budget/reallocate-budget.js";
+import { createSetBudgetTool } from "../../../tools/budget/set-budget.js";
 import type { ToolContext } from "../../../tools/types.js";
 
 /** Test guardrail configuration with explicit thresholds. */
@@ -23,10 +23,12 @@ const TEST_GUARDRAILS: GuardrailConfig = {
 /**
  * Creates a mock MetaClient with configurable campaign responses.
  */
-function createMockClient(overrides: {
-	campaignBudgetCents?: string;
-	adSetBudgetCents?: string;
-} = {}) {
+function createMockClient(
+	overrides: {
+		campaignBudgetCents?: string;
+		adSetBudgetCents?: string;
+	} = {},
+) {
 	return {
 		campaigns: {
 			list: vi.fn().mockResolvedValue([]),
@@ -97,7 +99,7 @@ describe("set_budget guardrails", () => {
 
 		expect(result.success).toBe(false);
 		expect(result.message).toContain("below the minimum");
-		expect(result.data!.minDailyBudget).toBe(10);
+		expect(result.data?.minDailyBudget).toBe(10);
 		expect(client.campaigns.update).not.toHaveBeenCalled();
 	});
 
@@ -138,7 +140,7 @@ describe("set_budget guardrails", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.data!.status).toBe("pending_approval");
+		expect(result.data?.status).toBe("pending_approval");
 		expect(result.message).toContain("requires human approval");
 		expect(client.campaigns.update).not.toHaveBeenCalled();
 	});
@@ -158,8 +160,8 @@ describe("set_budget guardrails", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.data!.previousBudget).toBe(100);
-		expect(result.data!.newBudget).toBe(150);
+		expect(result.data?.previousBudget).toBe(100);
+		expect(result.data?.newBudget).toBe(150);
 		expect(client.campaigns.update).toHaveBeenCalledWith("campaign_1", {
 			daily_budget: "15000",
 		});
@@ -182,7 +184,7 @@ describe("set_budget guardrails", () => {
 
 		expect(result.success).toBe(false);
 		expect(result.message).toContain("below the minimum");
-		expect(result.data!.targetLevel).toBe("ad set");
+		expect(result.data?.targetLevel).toBe("ad set");
 	});
 
 	it("should skip API call in dry-run mode but still check guardrails", async () => {
@@ -202,7 +204,7 @@ describe("set_budget guardrails", () => {
 			createTestContext({ dryRun: true }),
 		);
 		expect(successResult.success).toBe(true);
-		expect(successResult.data!.dryRun).toBe(true);
+		expect(successResult.data?.dryRun).toBe(true);
 		expect(client.campaigns.update).not.toHaveBeenCalled();
 	});
 });
@@ -327,11 +329,7 @@ describe("reallocate_budget guardrails", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.data!.source).toEqual(
-			expect.objectContaining({ before: 200, after: 170 }),
-		);
-		expect(result.data!.destination).toEqual(
-			expect.objectContaining({ before: 50, after: 80 }),
-		);
+		expect(result.data?.source).toEqual(expect.objectContaining({ before: 200, after: 170 }));
+		expect(result.data?.destination).toEqual(expect.objectContaining({ before: 50, after: 80 }));
 	});
 });

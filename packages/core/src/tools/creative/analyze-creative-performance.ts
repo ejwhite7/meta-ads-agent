@@ -14,12 +14,12 @@
  * - Recommended retirements: Bottom 20% by composite score (CTR * conversions / frequency)
  */
 
-import { Type, type Static } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolResult } from "../types.js";
 import type {
-	CreativeToolContext,
 	CreativePerformanceAnalysis,
+	CreativeToolContext,
 	InsightsResultLike,
 } from "./types.js";
 
@@ -32,11 +32,7 @@ const AnalyzePerformanceParams = Type.Object({
 
 	/** Date range for performance data. */
 	dateRange: Type.Union(
-		[
-			Type.Literal("last_7d"),
-			Type.Literal("last_14d"),
-			Type.Literal("last_30d"),
-		],
+		[Type.Literal("last_7d"), Type.Literal("last_14d"), Type.Literal("last_30d")],
 		{ description: "Date range for performance analysis" },
 	),
 });
@@ -113,9 +109,7 @@ function estimateFrequency(impressions: number, clicks: number): number {
 function median(values: number[]): number {
 	const sorted = [...values].sort((a, b) => a - b);
 	const mid = Math.floor(sorted.length / 2);
-	return sorted.length % 2 === 0
-		? (sorted[mid - 1] + sorted[mid]) / 2
-		: sorted[mid];
+	return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /**
@@ -170,7 +164,7 @@ export function classifyCreatives(analyses: CreativePerformanceAnalysis[]): {
 	/* Sort by score ascending for retirement calculation */
 	const sortedByScore = [...analyses].sort((a, b) => a.score - b.score);
 	const retirementCount = Math.max(1, Math.ceil(analyses.length * RETIREMENT_PERCENTILE));
-	const retirementThreshold = sortedByScore[retirementCount - 1]?.score ?? 0;
+	const retirementIds = new Set(sortedByScore.slice(0, retirementCount).map((a) => a.creativeId));
 
 	const winners: CreativePerformanceAnalysis[] = [];
 	const losers: CreativePerformanceAnalysis[] = [];
@@ -183,11 +177,13 @@ export function classifyCreatives(analyses: CreativePerformanceAnalysis[]): {
 		const isWinner = analysis.ctr >= medianCtr;
 		const isLoser = analysis.ctr < medianCtr && analysis.frequency > LOSER_FREQUENCY_THRESHOLD;
 		const isFatigued = analysis.frequency > FATIGUE_FREQUENCY_THRESHOLD;
-		const shouldRetire = analysis.score <= retirementThreshold;
+		const shouldRetire = retirementIds.has(analysis.creativeId);
 
-		if (shouldRetire) {
+		if (isFatigued) {
+			recommendation = "rotate";
+		} else if (shouldRetire) {
 			recommendation = "retire";
-		} else if (isFatigued || isLoser) {
+		} else if (isLoser) {
 			recommendation = "rotate";
 		}
 
@@ -267,6 +263,7 @@ export const analyzeCreativePerformanceTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to analyze creative performance: ${message}`,
 				message: `Failed to analyze creative performance: ${message}`,
 			};
 		}

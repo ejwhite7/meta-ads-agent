@@ -7,7 +7,7 @@
  * negative prompt (elements to exclude), aspect ratio, and style notes.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolResult } from "../types.js";
 import type { CreativeToolContext, ImagePromptSpec } from "./types.js";
@@ -24,11 +24,7 @@ const GenerateImagePromptsParams = Type.Object({
 
 	/** Desired visual style for the generated images. */
 	style: Type.Union(
-		[
-			Type.Literal("photo"),
-			Type.Literal("illustration"),
-			Type.Literal("minimal"),
-		],
+		[Type.Literal("photo"), Type.Literal("illustration"), Type.Literal("minimal")],
 		{ description: "Visual style for image generation" },
 	),
 
@@ -170,6 +166,7 @@ export const generateImagePromptsTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to generate image prompts: ${message}`,
 				message: `Failed to generate image prompts: ${message}`,
 			};
 		}

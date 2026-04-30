@@ -12,7 +12,7 @@
  * - Telemetry and metrics emission
  */
 
-import type { ToolResult } from './types.js';
+import type { ToolResult } from "./types.js";
 
 /**
  * Hook invoked before a tool executes.
@@ -25,10 +25,7 @@ import type { ToolResult } from './types.js';
  * @param params - Parameters that will be passed to the tool
  * @returns Promise resolving to void (proceed) or 'skip' (skip execution)
  */
-export type BeforeHook = (
-  toolName: string,
-  params: unknown,
-) => Promise<void | 'skip'>;
+export type BeforeHook = (toolName: string, params: unknown) => Promise<undefined | "skip">;
 
 /**
  * Hook invoked after a tool executes successfully.
@@ -41,11 +38,7 @@ export type BeforeHook = (
  * @param params - Parameters that were passed to the tool
  * @param result - The tool's execution result
  */
-export type AfterHook = (
-  toolName: string,
-  params: unknown,
-  result: ToolResult,
-) => Promise<void>;
+export type AfterHook = (toolName: string, params: unknown, result: ToolResult) => Promise<void>;
 
 /**
  * Manages before and after hooks for tool execution.
@@ -69,91 +62,91 @@ export type AfterHook = (
  * ```
  */
 export class HookManager {
-  /** Before hooks keyed by tool name (or "*" for wildcard) */
-  private readonly beforeHooks: Map<string, BeforeHook[]> = new Map();
+	/** Before hooks keyed by tool name (or "*" for wildcard) */
+	private readonly beforeHooks: Map<string, BeforeHook[]> = new Map();
 
-  /** After hooks keyed by tool name (or "*" for wildcard) */
-  private readonly afterHooks: Map<string, AfterHook[]> = new Map();
+	/** After hooks keyed by tool name (or "*" for wildcard) */
+	private readonly afterHooks: Map<string, AfterHook[]> = new Map();
 
-  /**
-   * Registers a before hook for a specific tool or all tools.
-   *
-   * @param toolPattern - Tool name to match, or "*" for all tools
-   * @param hook - The before hook function to register
-   */
-  addBeforeHook(toolPattern: string, hook: BeforeHook): void {
-    const existing = this.beforeHooks.get(toolPattern) ?? [];
-    existing.push(hook);
-    this.beforeHooks.set(toolPattern, existing);
-  }
+	/**
+	 * Registers a before hook for a specific tool or all tools.
+	 *
+	 * @param toolPattern - Tool name to match, or "*" for all tools
+	 * @param hook - The before hook function to register
+	 */
+	addBeforeHook(toolPattern: string, hook: BeforeHook): void {
+		const existing = this.beforeHooks.get(toolPattern) ?? [];
+		existing.push(hook);
+		this.beforeHooks.set(toolPattern, existing);
+	}
 
-  /**
-   * Registers an after hook for a specific tool or all tools.
-   *
-   * @param toolPattern - Tool name to match, or "*" for all tools
-   * @param hook - The after hook function to register
-   */
-  addAfterHook(toolPattern: string, hook: AfterHook): void {
-    const existing = this.afterHooks.get(toolPattern) ?? [];
-    existing.push(hook);
-    this.afterHooks.set(toolPattern, existing);
-  }
+	/**
+	 * Registers an after hook for a specific tool or all tools.
+	 *
+	 * @param toolPattern - Tool name to match, or "*" for all tools
+	 * @param hook - The after hook function to register
+	 */
+	addAfterHook(toolPattern: string, hook: AfterHook): void {
+		const existing = this.afterHooks.get(toolPattern) ?? [];
+		existing.push(hook);
+		this.afterHooks.set(toolPattern, existing);
+	}
 
-  /**
-   * Runs all matching before hooks for a tool execution.
-   *
-   * Executes wildcard ("*") hooks first, then tool-specific hooks,
-   * both in registration order. If any hook returns 'skip', execution
-   * stops and 'skip' is returned immediately.
-   *
-   * @param toolName - Name of the tool being executed
-   * @param params - Parameters being passed to the tool
-   * @returns 'skip' if any hook requests skipping, void otherwise
-   */
-  async runBeforeHooks(toolName: string, params: unknown): Promise<void | 'skip'> {
-    const wildcardHooks = this.beforeHooks.get('*') ?? [];
-    const specificHooks = this.beforeHooks.get(toolName) ?? [];
-    const allHooks = [...wildcardHooks, ...specificHooks];
+	/**
+	 * Runs all matching before hooks for a tool execution.
+	 *
+	 * Executes wildcard ("*") hooks first, then tool-specific hooks,
+	 * both in registration order. If any hook returns 'skip', execution
+	 * stops and 'skip' is returned immediately.
+	 *
+	 * @param toolName - Name of the tool being executed
+	 * @param params - Parameters being passed to the tool
+	 * @returns 'skip' if any hook requests skipping, void otherwise
+	 */
+	async runBeforeHooks(toolName: string, params: unknown): Promise<undefined | "skip"> {
+		const wildcardHooks = this.beforeHooks.get("*") ?? [];
+		const specificHooks = this.beforeHooks.get(toolName) ?? [];
+		const allHooks = [...wildcardHooks, ...specificHooks];
 
-    for (const hook of allHooks) {
-      const result = await hook(toolName, params);
-      if (result === 'skip') {
-        return 'skip';
-      }
-    }
-  }
+		for (const hook of allHooks) {
+			const result = await hook(toolName, params);
+			if (result === "skip") {
+				return "skip";
+			}
+		}
+	}
 
-  /**
-   * Runs all matching after hooks for a tool execution.
-   *
-   * Executes wildcard ("*") hooks first, then tool-specific hooks.
-   * Errors in after hooks are caught and logged to stderr — they
-   * never affect the tool result or propagate to the caller.
-   *
-   * @param toolName - Name of the tool that executed
-   * @param params - Parameters that were passed to the tool
-   * @param result - The tool's execution result
-   */
-  async runAfterHooks(toolName: string, params: unknown, result: ToolResult): Promise<void> {
-    const wildcardHooks = this.afterHooks.get('*') ?? [];
-    const specificHooks = this.afterHooks.get(toolName) ?? [];
-    const allHooks = [...wildcardHooks, ...specificHooks];
+	/**
+	 * Runs all matching after hooks for a tool execution.
+	 *
+	 * Executes wildcard ("*") hooks first, then tool-specific hooks.
+	 * Errors in after hooks are caught and logged to stderr — they
+	 * never affect the tool result or propagate to the caller.
+	 *
+	 * @param toolName - Name of the tool that executed
+	 * @param params - Parameters that were passed to the tool
+	 * @param result - The tool's execution result
+	 */
+	async runAfterHooks(toolName: string, params: unknown, result: ToolResult): Promise<void> {
+		const wildcardHooks = this.afterHooks.get("*") ?? [];
+		const specificHooks = this.afterHooks.get(toolName) ?? [];
+		const allHooks = [...wildcardHooks, ...specificHooks];
 
-    for (const hook of allHooks) {
-      try {
-        await hook(toolName, params, result);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(`[HookManager] After hook error for "${toolName}": ${message}`);
-      }
-    }
-  }
+		for (const hook of allHooks) {
+			try {
+				await hook(toolName, params, result);
+			} catch (err: unknown) {
+				const message = err instanceof Error ? err.message : String(err);
+				console.error(`[HookManager] After hook error for "${toolName}": ${message}`);
+			}
+		}
+	}
 
-  /**
-   * Removes all registered hooks. Primarily used in tests.
-   */
-  clear(): void {
-    this.beforeHooks.clear();
-    this.afterHooks.clear();
-  }
+	/**
+	 * Removes all registered hooks. Primarily used in tests.
+	 */
+	clear(): void {
+		this.beforeHooks.clear();
+		this.afterHooks.clear();
+	}
 }

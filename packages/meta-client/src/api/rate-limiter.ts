@@ -141,11 +141,7 @@ export class RateLimiter {
 			return 0;
 		}
 
-		return Math.max(
-			state.usage.callCount,
-			state.usage.totalCpuTime,
-			state.usage.totalTime,
-		);
+		return Math.max(state.usage.callCount, state.usage.totalCpuTime, state.usage.totalTime);
 	}
 
 	/**

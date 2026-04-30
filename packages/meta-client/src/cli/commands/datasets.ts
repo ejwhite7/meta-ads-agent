@@ -7,10 +7,10 @@
  */
 
 import type {
-	Dataset,
 	CreateDatasetParams,
-	UpdateDatasetParams,
+	Dataset,
 	DatasetUploadParams,
+	UpdateDatasetParams,
 } from "../../types.js";
 import type { CLIWrapper } from "../wrapper.js";
 
@@ -114,7 +114,10 @@ export class DatasetCommands {
 	 * @param params - Event data to upload.
 	 * @returns Upload result with event processing status.
 	 */
-	async upload(datasetId: string, params: DatasetUploadParams): Promise<{ events_received: number }> {
+	async upload(
+		datasetId: string,
+		params: DatasetUploadParams,
+	): Promise<{ events_received: number }> {
 		return this.cli.run<{ events_received: number }>("datasets", "upload", {
 			id: datasetId,
 			data: JSON.stringify(params.data),

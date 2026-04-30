@@ -6,15 +6,15 @@
  * advancement, and edge cases like pool boundary wrapping.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LLMProvider } from "../../../llm/types.js";
 import {
-	rotateCreativesTool,
-	getRotationState,
-	setRotationState,
 	clearRotationState,
+	getRotationState,
+	rotateCreativesTool,
+	setRotationState,
 } from "../../../tools/creative/rotate-creatives.js";
 import type { CreativeToolContext, MetaClientLike } from "../../../tools/creative/types.js";
-import type { LLMProvider } from "../../../llm/types.js";
 
 /**
  * Creates a mock MetaClient with configurable ads list.
@@ -66,8 +66,20 @@ describe("rotate_creatives tool", () => {
 
 	it("should rotate from the first creative to the second on initial rotation", async () => {
 		const ads = [
-			{ id: "ad_1", name: "Ad 1", adset_id: "adset_A", status: "ACTIVE", creative_id: "creative_a" },
-			{ id: "ad_2", name: "Ad 2", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_b" },
+			{
+				id: "ad_1",
+				name: "Ad 1",
+				adset_id: "adset_A",
+				status: "ACTIVE",
+				creative_id: "creative_a",
+			},
+			{
+				id: "ad_2",
+				name: "Ad 2",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_b",
+			},
 		];
 
 		const client = mockMetaClient(ads);
@@ -93,8 +105,20 @@ describe("rotate_creatives tool", () => {
 
 	it("should pause ads with the previous creative and activate ads with the next", async () => {
 		const ads = [
-			{ id: "ad_1", name: "Ad 1", adset_id: "adset_A", status: "ACTIVE", creative_id: "creative_a" },
-			{ id: "ad_2", name: "Ad 2", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_b" },
+			{
+				id: "ad_1",
+				name: "Ad 1",
+				adset_id: "adset_A",
+				status: "ACTIVE",
+				creative_id: "creative_a",
+			},
+			{
+				id: "ad_2",
+				name: "Ad 2",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_b",
+			},
 		];
 
 		const client = mockMetaClient(ads);
@@ -117,8 +141,20 @@ describe("rotate_creatives tool", () => {
 
 	it("should persist rotation state after execution", async () => {
 		const ads = [
-			{ id: "ad_1", name: "Ad 1", adset_id: "adset_A", status: "ACTIVE", creative_id: "creative_a" },
-			{ id: "ad_2", name: "Ad 2", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_b" },
+			{
+				id: "ad_1",
+				name: "Ad 1",
+				adset_id: "adset_A",
+				status: "ACTIVE",
+				creative_id: "creative_a",
+			},
+			{
+				id: "ad_2",
+				name: "Ad 2",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_b",
+			},
 		];
 
 		const client = mockMetaClient(ads);
@@ -151,9 +187,27 @@ describe("rotate_creatives tool", () => {
 		});
 
 		const ads = [
-			{ id: "ad_1", name: "Ad 1", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_a" },
-			{ id: "ad_2", name: "Ad 2", adset_id: "adset_A", status: "ACTIVE", creative_id: "creative_b" },
-			{ id: "ad_3", name: "Ad 3", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_c" },
+			{
+				id: "ad_1",
+				name: "Ad 1",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_a",
+			},
+			{
+				id: "ad_2",
+				name: "Ad 2",
+				adset_id: "adset_A",
+				status: "ACTIVE",
+				creative_id: "creative_b",
+			},
+			{
+				id: "ad_3",
+				name: "Ad 3",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_c",
+			},
 		];
 
 		const client = mockMetaClient(ads);
@@ -185,9 +239,27 @@ describe("rotate_creatives tool", () => {
 		});
 
 		const ads = [
-			{ id: "ad_1", name: "Ad 1", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_a" },
-			{ id: "ad_2", name: "Ad 2", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_b" },
-			{ id: "ad_3", name: "Ad 3", adset_id: "adset_A", status: "ACTIVE", creative_id: "creative_c" },
+			{
+				id: "ad_1",
+				name: "Ad 1",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_a",
+			},
+			{
+				id: "ad_2",
+				name: "Ad 2",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_b",
+			},
+			{
+				id: "ad_3",
+				name: "Ad 3",
+				adset_id: "adset_A",
+				status: "ACTIVE",
+				creative_id: "creative_c",
+			},
 		];
 
 		const client = mockMetaClient(ads);
@@ -227,9 +299,27 @@ describe("rotate_creatives tool", () => {
 
 	it("should only affect ads in the specified ad set", async () => {
 		const ads = [
-			{ id: "ad_1", name: "Ad 1", adset_id: "adset_A", status: "ACTIVE", creative_id: "creative_a" },
-			{ id: "ad_2", name: "Ad 2", adset_id: "adset_B", status: "ACTIVE", creative_id: "creative_a" },
-			{ id: "ad_3", name: "Ad 3", adset_id: "adset_A", status: "PAUSED", creative_id: "creative_b" },
+			{
+				id: "ad_1",
+				name: "Ad 1",
+				adset_id: "adset_A",
+				status: "ACTIVE",
+				creative_id: "creative_a",
+			},
+			{
+				id: "ad_2",
+				name: "Ad 2",
+				adset_id: "adset_B",
+				status: "ACTIVE",
+				creative_id: "creative_a",
+			},
+			{
+				id: "ad_3",
+				name: "Ad 3",
+				adset_id: "adset_A",
+				status: "PAUSED",
+				creative_id: "creative_b",
+			},
 		];
 
 		const client = mockMetaClient(ads);

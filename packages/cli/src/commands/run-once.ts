@@ -9,54 +9,54 @@
  */
 
 import type { Command } from "commander";
-import { logger } from "../utils/logger.js";
-import { success, error, spinner } from "../utils/display.js";
 import { DaemonManager } from "../daemon/manager.js";
+import { error, spinner, success } from "../utils/display.js";
 import { handleError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * Register the `run-once` command on the root program.
  */
 export function registerRunOnceCommand(program: Command): void {
-  program
-    .command("run-once")
-    .description("Execute a single OODA tick and exit")
-    .option("--dry-run", "Log actions without executing them", false)
-    .action(async (options: { dryRun: boolean }) => {
-      const tickSpinner = spinner("Running single tick...");
-      tickSpinner.start();
+	program
+		.command("run-once")
+		.description("Execute a single OODA tick and exit")
+		.option("--dry-run", "Log actions without executing them", false)
+		.action(async (options: { dryRun: boolean }) => {
+			const tickSpinner = spinner("Running single tick...");
+			tickSpinner.start();
 
-      try {
-        const daemon = new DaemonManager();
+			try {
+				const daemon = new DaemonManager();
 
-        logger.debug("Executing single tick (dry-run: %s)", options.dryRun);
+				logger.debug("Executing single tick (dry-run: %s)", options.dryRun);
 
-        const result = await daemon.runOnce({ dryRun: options.dryRun });
+				const result = await daemon.runOnce({ dryRun: options.dryRun });
 
-        tickSpinner.stop();
+				tickSpinner.stop();
 
-        if (result.success) {
-          success("Tick completed successfully.");
-          logger.info("Tool invocations: %d", result.actionsCount);
-          logger.info("Duration: %dms", result.durationMs);
+				if (result.success) {
+					success("Tick completed successfully.");
+					logger.info("Tool invocations: %d", result.actionsCount);
+					logger.info("Duration: %dms", result.durationMs);
 
-          if (result.decisions.length > 0) {
-            console.log("\nDecisions made:");
-            for (const decision of result.decisions) {
-              console.log(`  - [${decision.toolName}] ${decision.action}`);
-            }
-          } else {
-            console.log("\nNo actions taken this tick.");
-          }
-        } else {
-          error("Tick completed with errors.");
-          logger.error("Error: %s", result.error);
-          process.exitCode = 1;
-        }
-      } catch (err: unknown) {
-        tickSpinner.stop();
-        handleError(err);
-        process.exitCode = 1;
-      }
-    });
+					if (result.decisions.length > 0) {
+						console.log("\nDecisions made:");
+						for (const decision of result.decisions) {
+							console.log(`  - [${decision.toolName}] ${decision.action}`);
+						}
+					} else {
+						console.log("\nNo actions taken this tick.");
+					}
+				} else {
+					error("Tick completed with errors.");
+					logger.error("Error: %s", result.error);
+					process.exitCode = 1;
+				}
+			} catch (err: unknown) {
+				tickSpinner.stop();
+				handleError(err);
+				process.exitCode = 1;
+			}
+		});
 }

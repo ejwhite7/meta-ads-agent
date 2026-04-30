@@ -6,7 +6,7 @@
  * differs correctly for alert, report, and action_taken message types.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sendSlackWebhook } from "../../../tools/reporting/send-slack-webhook.js";
 import type { ToolContext } from "../../../tools/types.js";
 
@@ -25,10 +25,13 @@ let capturedBody: string | undefined;
 
 beforeEach(() => {
 	capturedBody = undefined;
-	vi.stubGlobal("fetch", vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
-		capturedBody = init?.body as string;
-		return new Response("ok", { status: 200 });
-	}));
+	vi.stubGlobal(
+		"fetch",
+		vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+			capturedBody = init?.body as string;
+			return new Response("ok", { status: 200 });
+		}),
+	);
 });
 
 afterEach(() => {
@@ -74,9 +77,7 @@ describe("sendSlackWebhook", () => {
 			expect(header.text.text).toContain("ALERT");
 
 			/* Verify anomaly content in a section block */
-			const sectionBlocks = payload.blocks.filter(
-				(b: { type: string }) => b.type === "section",
-			);
+			const sectionBlocks = payload.blocks.filter((b: { type: string }) => b.type === "section");
 			expect(sectionBlocks.length).toBeGreaterThan(0);
 
 			/* Verify the content mentions the anomaly */
@@ -124,9 +125,7 @@ describe("sendSlackWebhook", () => {
 
 			expect(result.success).toBe(true);
 			const payload = JSON.parse(capturedBody!);
-			const sectionBlocks = payload.blocks.filter(
-				(b: { type: string }) => b.type === "section",
-			);
+			const sectionBlocks = payload.blocks.filter((b: { type: string }) => b.type === "section");
 			expect(sectionBlocks.length).toBeGreaterThan(0);
 		});
 	});
@@ -185,7 +184,16 @@ describe("sendSlackWebhook", () => {
 
 		it("should include date range context block", async () => {
 			const report = {
-				summary: { totalSpend: 100, totalImpressions: 1000, totalClicks: 100, avgCTR: 0.1, avgCPC: 1, totalConversions: 10, avgROAS: 2, avgCPA: 10 },
+				summary: {
+					totalSpend: 100,
+					totalImpressions: 1000,
+					totalClicks: 100,
+					avgCTR: 0.1,
+					avgCPC: 1,
+					totalConversions: 10,
+					avgROAS: 2,
+					avgCPA: 10,
+				},
 				dateRange: { start: "2024-01-01", end: "2024-01-07" },
 			};
 
@@ -199,9 +207,7 @@ describe("sendSlackWebhook", () => {
 			);
 
 			const payload = JSON.parse(capturedBody!);
-			const contextBlocks = payload.blocks.filter(
-				(b: { type: string }) => b.type === "context",
-			);
+			const contextBlocks = payload.blocks.filter((b: { type: string }) => b.type === "context");
 			expect(contextBlocks.length).toBeGreaterThan(0);
 			expect(JSON.stringify(contextBlocks)).toContain("2024-01-01");
 		});
@@ -228,9 +234,7 @@ describe("sendSlackWebhook", () => {
 			expect(header.text.text).toContain("ACTION TAKEN");
 
 			/* Verify message content */
-			const sectionBlocks = payload.blocks.filter(
-				(b: { type: string }) => b.type === "section",
-			);
+			const sectionBlocks = payload.blocks.filter((b: { type: string }) => b.type === "section");
 			expect(sectionBlocks.length).toBeGreaterThan(0);
 			expect(sectionBlocks[0].text.text).toContain("Paused campaign");
 		});
@@ -242,9 +246,10 @@ describe("sendSlackWebhook", () => {
 			const headers: string[] = [];
 
 			for (const type of types) {
-				vi.mocked(fetch).mockResolvedValueOnce(
-					new Response("ok", { status: 200 }),
-				);
+				vi.mocked(fetch).mockImplementationOnce(async (_url: string, init?: RequestInit) => {
+					capturedBody = init?.body as string;
+					return new Response("ok", { status: 200 });
+				});
 
 				await sendSlackWebhook.execute(
 					{
@@ -267,9 +272,7 @@ describe("sendSlackWebhook", () => {
 
 	describe("error handling", () => {
 		it("should handle HTTP error responses", async () => {
-			vi.mocked(fetch).mockResolvedValueOnce(
-				new Response("invalid_token", { status: 403 }),
-			);
+			vi.mocked(fetch).mockResolvedValueOnce(new Response("invalid_token", { status: 403 }));
 
 			const result = await sendSlackWebhook.execute(
 				{

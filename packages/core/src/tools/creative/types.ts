@@ -8,8 +8,8 @@
  * API access.
  */
 
-import type { ToolContext } from "../types.js";
 import type { LLMProvider } from "../../llm/types.js";
+import type { ToolContext } from "../types.js";
 
 /**
  * MetaClient interface for creative tools.
@@ -22,14 +22,27 @@ export interface MetaClientLike {
 	/** Creative CRUD operations. */
 	readonly creatives: {
 		create(adAccountId: string, params: CreateCreativeInput): Promise<{ id: string; name: string }>;
-		list(adAccountId: string): Promise<Array<{ id: string; name: string; body?: string; title?: string }>>;
-		get(creativeId: string): Promise<{ id: string; name: string; body?: string; title?: string; call_to_action_type?: string; link_url?: string }>;
+		list(
+			adAccountId: string,
+		): Promise<Array<{ id: string; name: string; body?: string; title?: string }>>;
+		get(creativeId: string): Promise<{
+			id: string;
+			name: string;
+			body?: string;
+			title?: string;
+			call_to_action_type?: string;
+			link_url?: string;
+		}>;
 		delete(creativeId: string): Promise<void>;
 	};
 
 	/** Ad operations for pausing/activating ads by creative. */
 	readonly ads: {
-		list(adAccountId: string): Promise<Array<{ id: string; name: string; adset_id: string; status: string; creative_id: string }>>;
+		list(
+			adAccountId: string,
+		): Promise<
+			Array<{ id: string; name: string; adset_id: string; status: string; creative_id: string }>
+		>;
 		update(adId: string, params: { status?: string }): Promise<{ id: string; status: string }>;
 	};
 

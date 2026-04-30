@@ -11,7 +11,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { createTool } from "../types.js";
+import { type ToolResult, createTool } from "../types.js";
 import type { ReportCampaignMetrics, ReportingToolContext } from "./types.js";
 import { parseInsightsToMetrics } from "./utils.js";
 
@@ -61,13 +61,14 @@ export const getCampaignMetrics = createTool({
 		"Fetches performance metrics (spend, impressions, clicks, CTR, CPC, CPM, reach, " +
 		"frequency, conversions, ROAS, CPA) for a single campaign over a specified date period.",
 	parameters: GetCampaignMetricsParams,
-	async execute(params, context): Promise<{ success: boolean; data: Record<string, unknown> | null; message: string }> {
+	async execute(params, context): Promise<ToolResult> {
 		const ctx = context as ReportingToolContext;
 
 		if (!ctx.metaClient) {
 			return {
 				success: false,
 				data: null,
+				error: "MetaClient is not available in the tool context.",
 				message: "MetaClient is not available in the tool context.",
 			};
 		}
@@ -118,6 +119,7 @@ export const getCampaignMetrics = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to fetch campaign metrics: ${errMessage}`,
 				message: `Failed to fetch campaign metrics: ${errMessage}`,
 			};
 		}

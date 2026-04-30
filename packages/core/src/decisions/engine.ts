@@ -7,12 +7,12 @@
  * filters by guardrail constraints, and returns a ranked list of safe actions.
  */
 
-import type { CampaignMetrics, AgentGoal } from '../types.js';
-import type { Tool } from '../tools/types.js';
-import type { TObject } from '@sinclair/typebox';
-import type { ActionProposal, GuardrailConfig, RawProposedAction } from './types.js';
-import { DEFAULT_GUARDRAILS } from './types.js';
-import { rankProposals } from './scoring.js';
+import type { TObject } from "@sinclair/typebox";
+import type { Tool } from "../tools/types.js";
+import type { AgentGoal, CampaignMetrics } from "../types.js";
+import { rankProposals } from "./scoring.js";
+import type { ActionProposal, GuardrailConfig, RawProposedAction } from "./types.js";
+import { DEFAULT_GUARDRAILS } from "./types.js";
 
 /**
  * Parses structured action proposals from LLM reasoning text.
@@ -26,66 +26,66 @@ import { rankProposals } from './scoring.js';
  * @returns Array of parsed raw action proposals
  */
 export function parseActions(
-  llmReasoning: string,
-  availableTools: Tool<TObject>[],
+	llmReasoning: string,
+	availableTools: Tool<TObject>[],
 ): RawProposedAction[] {
-  const toolNames = new Set(availableTools.map((t) => t.name));
-  const actions: RawProposedAction[] = [];
+	const toolNames = new Set(availableTools.map((t) => t.name));
+	const actions: RawProposedAction[] = [];
 
-  /* Try to find a JSON array in the LLM output */
-  const jsonMatch = llmReasoning.match(/\[[\s\S]*?\]/);
-  if (!jsonMatch) {
-    return actions;
-  }
+	/* Try to find a JSON array in the LLM output */
+	const jsonMatch = llmReasoning.match(/\[[\s\S]*?\]/);
+	if (!jsonMatch) {
+		return actions;
+	}
 
-  let parsed: unknown[];
-  try {
-    parsed = JSON.parse(jsonMatch[0]) as unknown[];
-  } catch {
-    return actions;
-  }
+	let parsed: unknown[];
+	try {
+		parsed = JSON.parse(jsonMatch[0]) as unknown[];
+	} catch {
+		return actions;
+	}
 
-  if (!Array.isArray(parsed)) {
-    return actions;
-  }
+	if (!Array.isArray(parsed)) {
+		return actions;
+	}
 
-  for (const item of parsed) {
-    if (typeof item !== 'object' || item === null) continue;
+	for (const item of parsed) {
+		if (typeof item !== "object" || item === null) continue;
 
-    const record = item as Record<string, unknown>;
-    const toolName = typeof record['toolName'] === 'string' ? record['toolName'] : '';
-    const params = typeof record['params'] === 'object' && record['params'] !== null
-      ? record['params'] as Record<string, unknown>
-      : {};
-    const reasoning = typeof record['reasoning'] === 'string' ? record['reasoning'] : '';
-    const expectedOutcome = typeof record['expectedOutcome'] === 'string'
-      ? record['expectedOutcome']
-      : '';
-    const confidence = typeof record['confidence'] === 'number'
-      ? Math.max(0, Math.min(1, record['confidence']))
-      : 0.5;
-    const expectedImpact = typeof record['expectedImpact'] === 'number'
-      ? Math.max(0, Math.min(1, record['expectedImpact']))
-      : 0.5;
-    const riskLevel = ['low', 'medium', 'high'].includes(record['riskLevel'] as string)
-      ? (record['riskLevel'] as 'low' | 'medium' | 'high')
-      : 'medium';
+		const record = item as Record<string, unknown>;
+		const toolName = typeof record.toolName === "string" ? record.toolName : "";
+		const params =
+			typeof record.params === "object" && record.params !== null
+				? (record.params as Record<string, unknown>)
+				: {};
+		const reasoning = typeof record.reasoning === "string" ? record.reasoning : "";
+		const expectedOutcome =
+			typeof record.expectedOutcome === "string" ? record.expectedOutcome : "";
+		const confidence =
+			typeof record.confidence === "number" ? Math.max(0, Math.min(1, record.confidence)) : 0.5;
+		const expectedImpact =
+			typeof record.expectedImpact === "number"
+				? Math.max(0, Math.min(1, record.expectedImpact))
+				: 0.5;
+		const riskLevel = ["low", "medium", "high"].includes(record.riskLevel as string)
+			? (record.riskLevel as "low" | "medium" | "high")
+			: "medium";
 
-    /* Skip actions for tools that are not registered */
-    if (!toolNames.has(toolName)) continue;
+		/* Skip actions for tools that are not registered */
+		if (!toolNames.has(toolName)) continue;
 
-    actions.push({
-      toolName,
-      params,
-      reasoning,
-      expectedOutcome,
-      confidence,
-      expectedImpact,
-      riskLevel,
-    });
-  }
+		actions.push({
+			toolName,
+			params,
+			reasoning,
+			expectedOutcome,
+			confidence,
+			expectedImpact,
+			riskLevel,
+		});
+	}
 
-  return actions;
+	return actions;
 }
 
 /**
@@ -102,43 +102,72 @@ export function parseActions(
  * @returns Filtered array of safe proposals
  */
 export function applyGuardrails(
-  proposals: ActionProposal[],
-  guardrails: GuardrailConfig,
-  currentMetrics: CampaignMetrics[],
+	proposals: ActionProposal[],
+	guardrails: GuardrailConfig,
+	currentMetrics: CampaignMetrics[],
 ): ActionProposal[] {
-  const currentSpendByCampaign = new Map<string, number>();
-  for (const metric of currentMetrics) {
-    currentSpendByCampaign.set(metric.campaignId, metric.spend);
-  }
+	/* Build a map of current daily budgets by campaign ID.
+	 * dailyBudget comes from the campaign snapshot, not spend. */
+	const currentBudgetByCampaign = new Map<string, number>();
+	for (const metric of currentMetrics) {
+		/* Use dailyBudget if available, otherwise fall back to spend as estimate */
+		// biome-ignore lint/suspicious/noExplicitAny: accessing optional dailyBudget field
+		const budget = (metric as any).dailyBudget;
+		currentBudgetByCampaign.set(
+			metric.campaignId,
+			typeof budget === "number" ? budget : metric.spend,
+		);
+	}
 
-  return proposals.filter((proposal) => {
-    /* Check budget floor */
-    if (proposal.params['dailyBudget'] !== undefined) {
-      const newBudget = Number(proposal.params['dailyBudget']);
-      if (newBudget < guardrails.minDailyBudget) {
-        return false;
-      }
+	/** Budget-modifying tool names */
+	const budgetTools = new Set([
+		"set_budget",
+		"scale_campaign",
+		"reallocate_budget",
+		"create_campaign",
+	]);
 
-      /* Check scale factor */
-      const campaignId = proposal.params['campaignId'] as string | undefined;
-      if (campaignId) {
-        const currentSpend = currentSpendByCampaign.get(campaignId);
-        if (currentSpend && currentSpend > 0) {
-          const scaleFactor = newBudget / currentSpend;
-          if (scaleFactor > guardrails.maxBudgetScaleFactor) {
-            return false;
-          }
-        }
-      }
+	return proposals.filter((proposal) => {
+		/* Only apply budget guardrails to budget-modifying tools */
+		if (!budgetTools.has(proposal.toolName)) return true;
 
-      /* Check approval threshold */
-      if (newBudget > guardrails.requireApprovalAbove) {
-        return false;
-      }
-    }
+		const campaignId = proposal.params.campaignId as string | undefined;
+		const currentBudget = campaignId ? (currentBudgetByCampaign.get(campaignId) ?? 0) : 0;
 
-    return true;
-  });
+		/* Compute the proposed new budget based on tool type */
+		let newBudget: number | undefined;
+
+		if (proposal.params.dailyBudget !== undefined) {
+			newBudget = Number(proposal.params.dailyBudget);
+		} else if (proposal.params.scaleFactor !== undefined) {
+			newBudget = currentBudget * Number(proposal.params.scaleFactor);
+		} else if (proposal.params.amount !== undefined) {
+			/* reallocate_budget uses amount */
+			newBudget = currentBudget + Number(proposal.params.amount);
+		}
+
+		if (newBudget === undefined) return true;
+
+		/* Check budget floor */
+		if (newBudget < guardrails.minDailyBudget) {
+			return false;
+		}
+
+		/* Check scale factor against current budget (not spend) */
+		if (currentBudget > 0) {
+			const scaleFactor = newBudget / currentBudget;
+			if (scaleFactor > guardrails.maxBudgetScaleFactor) {
+				return false;
+			}
+		}
+
+		/* Check approval threshold */
+		if (newBudget > guardrails.requireApprovalAbove) {
+			return false;
+		}
+
+		return true;
+	});
 }
 
 /**
@@ -156,30 +185,30 @@ export function applyGuardrails(
  * @returns Ranked array of safe, scored ActionProposals (highest score first)
  */
 export function proposeActions(
-  metrics: CampaignMetrics[],
-  goals: AgentGoal,
-  availableTools: Tool<TObject>[],
-  llmReasoning: string,
-  guardrails?: Partial<GuardrailConfig>,
+	metrics: CampaignMetrics[],
+	goals: AgentGoal,
+	availableTools: Tool<TObject>[],
+	llmReasoning: string,
+	guardrails?: Partial<GuardrailConfig>,
 ): ActionProposal[] {
-  const effectiveGuardrails: GuardrailConfig = {
-    ...DEFAULT_GUARDRAILS,
-    ...guardrails,
-  };
+	const effectiveGuardrails: GuardrailConfig = {
+		...DEFAULT_GUARDRAILS,
+		...guardrails,
+	};
 
-  /* Step 1: Parse raw actions from LLM output */
-  const rawActions = parseActions(llmReasoning, availableTools);
+	/* Step 1: Parse raw actions from LLM output */
+	const rawActions = parseActions(llmReasoning, availableTools);
 
-  if (rawActions.length === 0) {
-    return [];
-  }
+	if (rawActions.length === 0) {
+		return [];
+	}
 
-  /* Step 2: Score and rank proposals */
-  const ranked = rankProposals(rawActions);
+	/* Step 2: Score and rank proposals */
+	const ranked = rankProposals(rawActions);
 
-  /* Step 3: Apply guardrail filters */
-  const safe = applyGuardrails(ranked, effectiveGuardrails, metrics);
+	/* Step 3: Apply guardrail filters */
+	const safe = applyGuardrails(ranked, effectiveGuardrails, metrics);
 
-  /* Step 4: Enforce max actions per cycle */
-  return safe.slice(0, effectiveGuardrails.maxActionsPerCycle);
+	/* Step 4: Enforce max actions per cycle */
+	return safe.slice(0, effectiveGuardrails.maxActionsPerCycle);
 }

@@ -11,13 +11,9 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { createTool } from "../types.js";
-import type {
-	AttributionReport,
-	CampaignAttribution,
-	ReportingToolContext,
-} from "./types.js";
-import { safeParseFloat, extractConversions, extractRevenue } from "./utils.js";
+import { type ToolResult, createTool } from "../types.js";
+import type { AttributionReport, CampaignAttribution, ReportingToolContext } from "./types.js";
+import { extractConversions, extractRevenue, safeParseFloat } from "./utils.js";
 
 /**
  * Maps attribution window parameter values to Meta API action_attribution_windows.
@@ -36,11 +32,7 @@ const GetAttributionStatsParams = Type.Object({
 	adAccountId: Type.String({ description: "Meta ad account ID (e.g., 'act_123456789')" }),
 	/** Attribution window for conversion credit assignment. */
 	attributionWindow: Type.Union(
-		[
-			Type.Literal("1d_click"),
-			Type.Literal("7d_click"),
-			Type.Literal("28d_click"),
-		],
+		[Type.Literal("1d_click"), Type.Literal("7d_click"), Type.Literal("28d_click")],
 		{ description: "Attribution window: '1d_click', '7d_click', or '28d_click'" },
 	),
 });
@@ -72,13 +64,14 @@ export const getAttributionStats = createTool({
 		"distribution across campaigns for a specified attribution window " +
 		"(1-day click, 7-day click, or 28-day click).",
 	parameters: GetAttributionStatsParams,
-	async execute(params, context): Promise<{ success: boolean; data: Record<string, unknown> | null; message: string }> {
+	async execute(params, context): Promise<ToolResult> {
 		const ctx = context as ReportingToolContext;
 
 		if (!ctx.metaClient) {
 			return {
 				success: false,
 				data: null,
+				error: "MetaClient is not available in the tool context.",
 				message: "MetaClient is not available in the tool context.",
 			};
 		}
@@ -90,13 +83,7 @@ export const getAttributionStats = createTool({
 			const insights = await ctx.metaClient.insights.query(params.adAccountId, {
 				level: "campaign",
 				date_preset: "last_30d",
-				fields: [
-					"campaign_id",
-					"campaign_name",
-					"actions",
-					"spend",
-					"impressions",
-				],
+				fields: ["campaign_id", "campaign_name", "actions", "spend", "impressions"],
 				breakdowns: [`action_attribution_windows:${windowValue}`],
 			});
 
@@ -123,8 +110,7 @@ export const getAttributionStats = createTool({
 
 			/* ---- Calculate credit shares ---- */
 			for (const campaign of campaignData) {
-				campaign.creditShare =
-					totalConversions > 0 ? campaign.conversions / totalConversions : 0;
+				campaign.creditShare = totalConversions > 0 ? campaign.conversions / totalConversions : 0;
 			}
 
 			/* ---- Sort by conversions descending ---- */
@@ -148,6 +134,7 @@ export const getAttributionStats = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to fetch attribution stats: ${errMessage}`,
 				message: `Failed to fetch attribution stats: ${errMessage}`,
 			};
 		}

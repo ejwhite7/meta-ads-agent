@@ -8,7 +8,7 @@
  * moderate, or aggressive optimization strategies.
  */
 
-import type { RawProposedAction, ActionProposal } from './types.js';
+import type { ActionProposal, RawProposedAction } from "./types.js";
 
 /**
  * Maps risk level labels to numeric risk factors.
@@ -17,9 +17,9 @@ import type { RawProposedAction, ActionProposal } from './types.js';
  * The +0.1 offset in the formula ensures the denominator is never zero.
  */
 const RISK_FACTORS: Record<string, number> = {
-  low: 0.2,
-  medium: 0.5,
-  high: 0.9,
+	low: 0.2,
+	medium: 0.5,
+	high: 0.9,
 };
 
 /**
@@ -41,12 +41,12 @@ const RISK_FACTORS: Record<string, number> = {
  * @returns Composite score (higher is better)
  */
 export function scoreAction(
-  expectedImpact: number,
-  confidence: number,
-  riskLevel: 'low' | 'medium' | 'high',
+	expectedImpact: number,
+	confidence: number,
+	riskLevel: "low" | "medium" | "high",
 ): number {
-  const riskFactor = RISK_FACTORS[riskLevel] ?? RISK_FACTORS['medium']!;
-  return (expectedImpact * confidence) / (riskFactor + 0.1);
+	const riskFactor = RISK_FACTORS[riskLevel] ?? RISK_FACTORS.medium;
+	return (expectedImpact * confidence) / (riskFactor + 0.1);
 }
 
 /**
@@ -56,16 +56,16 @@ export function scoreAction(
  * @returns Scored ActionProposal with computed composite score
  */
 export function scoreProposal(action: RawProposedAction): ActionProposal {
-  const score = scoreAction(action.expectedImpact, action.confidence, action.riskLevel);
+	const score = scoreAction(action.expectedImpact, action.confidence, action.riskLevel);
 
-  return {
-    toolName: action.toolName,
-    params: action.params,
-    reasoning: action.reasoning,
-    score,
-    riskLevel: action.riskLevel,
-    expectedOutcome: action.expectedOutcome,
-  };
+	return {
+		toolName: action.toolName,
+		params: action.params,
+		reasoning: action.reasoning,
+		score,
+		riskLevel: action.riskLevel,
+		expectedOutcome: action.expectedOutcome,
+	};
 }
 
 /**
@@ -77,7 +77,5 @@ export function scoreProposal(action: RawProposedAction): ActionProposal {
  * @returns Sorted array of scored ActionProposals
  */
 export function rankProposals(actions: RawProposedAction[]): ActionProposal[] {
-  return actions
-    .map(scoreProposal)
-    .sort((a, b) => b.score - a.score);
+	return actions.map(scoreProposal).sort((a, b) => b.score - a.score);
 }

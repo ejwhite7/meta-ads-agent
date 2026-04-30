@@ -7,7 +7,7 @@
  * be reactivated after deletion.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolResult } from "../types.js";
 import type { CreativeToolContext } from "./types.js";
@@ -102,6 +102,7 @@ export const retireCreativeTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to retire creative ${params.creativeId}: ${message}`,
 				message: `Failed to retire creative ${params.creativeId}: ${message}`,
 			};
 		}

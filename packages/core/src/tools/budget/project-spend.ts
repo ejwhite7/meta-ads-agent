@@ -6,8 +6,8 @@
  * of data available for the projection.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
 import type { MetaClient } from "@meta-ads-agent/meta-client";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 
@@ -27,11 +27,7 @@ const ProjectSpendParams = Type.Object({
 	adAccountId: Type.String({ description: "Meta ad account ID (format: act_XXXXXXXXX)" }),
 	/** Time horizon for the projection. */
 	projectionPeriod: Type.Union(
-		[
-			Type.Literal("end_of_day"),
-			Type.Literal("end_of_week"),
-			Type.Literal("end_of_month"),
-		],
+		[Type.Literal("end_of_day"), Type.Literal("end_of_week"), Type.Literal("end_of_month")],
 		{ description: "Projection time horizon" },
 	),
 });
@@ -102,10 +98,7 @@ export function createProjectSpendTool(client: MetaClient) {
 			"Returns projected spend, ROAS, CPA, and confidence level.",
 		parameters: ProjectSpendParams,
 
-		async execute(
-			params: ProjectSpendInput,
-			context: ToolContext,
-		): Promise<ToolResult> {
+		async execute(params: ProjectSpendInput, context: ToolContext): Promise<ToolResult> {
 			const now = new Date(context.timestamp);
 			const { adAccountId, projectionPeriod } = params;
 
@@ -129,10 +122,7 @@ export function createProjectSpendTool(client: MetaClient) {
 
 				if (row.actions) {
 					for (const action of row.actions) {
-						if (
-							action.action_type === "purchase" ||
-							action.action_type === "omni_purchase"
-						) {
+						if (action.action_type === "purchase" || action.action_type === "omni_purchase") {
 							totalRevenue += Number.parseFloat(action.value);
 						}
 						if (
@@ -153,10 +143,7 @@ export function createProjectSpendTool(client: MetaClient) {
 			const dailyConversionRate = totalConversions / effectiveDays;
 
 			/* Compute remaining period */
-			const { remainingDays, totalPeriodDays } = computeRemainingDays(
-				projectionPeriod,
-				now,
-			);
+			const { remainingDays, totalPeriodDays } = computeRemainingDays(projectionPeriod, now);
 
 			/* Also get current period spend */
 			let currentPeriodDatePreset: "today" | "last_7d" | "this_month";
@@ -195,9 +182,7 @@ export function createProjectSpendTool(client: MetaClient) {
 					: projectedAdditionalRevenue;
 
 			const projectedRoas =
-				projectedTotalSpend > 0
-					? projectedTotalRevenue / projectedTotalSpend
-					: 0;
+				projectedTotalSpend > 0 ? projectedTotalRevenue / projectedTotalSpend : 0;
 
 			const projectedAdditionalConversions = dailyConversionRate * remainingDays;
 			const projectedTotalConversions =
@@ -206,9 +191,7 @@ export function createProjectSpendTool(client: MetaClient) {
 					: projectedAdditionalConversions;
 
 			const projectedCpa =
-				projectedTotalConversions > 0
-					? projectedTotalSpend / projectedTotalConversions
-					: 0;
+				projectedTotalConversions > 0 ? projectedTotalSpend / projectedTotalConversions : 0;
 
 			/* Determine confidence */
 			const confidence = classifyConfidence(daysOfData);

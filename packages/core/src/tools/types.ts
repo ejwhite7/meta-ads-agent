@@ -7,39 +7,77 @@
  * Tool definitions use TypeBox for compile-time AND runtime type safety.
  */
 
-import type { TObject, Static } from '@sinclair/typebox';
+import type { Static, TObject } from "@sinclair/typebox";
 
 /**
  * Context provided to every tool execution.
  * Carries session information and shared resources needed by tool implementations.
  */
+/**
+ * Context provided to every tool execution.
+ * Carries session information and shared resources needed by tool implementations.
+ */
 export interface ToolContext {
-  /** Current agent session ID */
-  readonly sessionId: string;
+	/** Current agent session ID */
+	readonly sessionId: string;
 
-  /** Meta ad account ID the tool should operate on */
-  readonly adAccountId: string;
+	/** Meta ad account ID the tool should operate on */
+	readonly adAccountId: string;
 
-  /** Whether the agent is in dry-run mode (log but do not execute) */
-  readonly dryRun: boolean;
+	/** Whether the agent is in dry-run mode (log but do not execute) */
+	readonly dryRun: boolean;
 
-  /** ISO 8601 timestamp when the execution started */
-  readonly timestamp: string;
+	/** ISO 8601 timestamp when the execution started */
+	readonly timestamp: string;
+
+	/** Meta API client instance for making API calls */
+	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any MetaClient-compatible object
+	readonly metaClient: any;
+
+	/** Audit logger for recording tool actions */
+	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any AuditLogger-compatible object
+	readonly auditLogger: any;
+
+	/** Agent goals for performance evaluation */
+	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any AgentGoal-compatible object
+	readonly goals: any;
+
+	/** Guardrail configuration for safety limits */
+	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any GuardrailConfig-compatible object
+	readonly guardrails: any;
+
+	/** Database connection for persistence */
+	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any Database-compatible object
+	readonly db?: any;
+
+	/** LLM provider for creative tools that need generation */
+	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any LLMProvider-compatible object
+	readonly llmProvider?: any;
 }
 
 /**
  * Result returned by a tool after execution.
  * Every tool must indicate success/failure and include relevant data.
  */
+/**
+ * Result returned by a tool after execution.
+ * Every tool must indicate success/failure and include relevant data.
+ */
 export interface ToolResult {
-  /** Whether the tool executed successfully */
-  readonly success: boolean;
+	/** Whether the tool executed successfully */
+	readonly success: boolean;
 
-  /** Result data from the tool (structure varies by tool) */
-  readonly data: Record<string, unknown> | null;
+	/** Result data from the tool (structure varies by tool) */
+	readonly data?: Record<string, unknown> | null;
 
-  /** Human-readable message describing the outcome */
-  readonly message: string;
+	/** Human-readable message describing the outcome */
+	readonly message?: string;
+
+	/** Error description when the tool fails */
+	readonly error?: string;
+
+	/** Machine-readable error code for programmatic handling */
+	readonly errorCode?: string;
 }
 
 /**
@@ -50,23 +88,23 @@ export interface ToolResult {
  *                          and runtime validation (via TypeBox's JSON Schema output).
  */
 export interface Tool<TParameters extends TObject> {
-  /** Unique tool name (used as the registry key and LLM function name) */
-  readonly name: string;
+	/** Unique tool name (used as the registry key and LLM function name) */
+	readonly name: string;
 
-  /** Human-readable description shown to the LLM for tool selection */
-  readonly description: string;
+	/** Human-readable description shown to the LLM for tool selection */
+	readonly description: string;
 
-  /** TypeBox schema defining the tool's parameters (doubles as JSON Schema for LLM) */
-  readonly parameters: TParameters;
+	/** TypeBox schema defining the tool's parameters (doubles as JSON Schema for LLM) */
+	readonly parameters: TParameters;
 
-  /**
-   * Execute the tool with validated parameters and execution context.
-   *
-   * @param params - Validated parameters matching the TypeBox schema
-   * @param context - Execution context with session info and shared resources
-   * @returns Promise resolving to the tool's execution result
-   */
-  execute(params: Static<TParameters>, context: ToolContext): Promise<ToolResult>;
+	/**
+	 * Execute the tool with validated parameters and execution context.
+	 *
+	 * @param params - Validated parameters matching the TypeBox schema
+	 * @param context - Execution context with session info and shared resources
+	 * @returns Promise resolving to the tool's execution result
+	 */
+	execute(params: Static<TParameters>, context: ToolContext): Promise<ToolResult>;
 }
 
 /**
@@ -99,9 +137,9 @@ export interface Tool<TParameters extends TObject> {
  * ```
  */
 export function createTool<TParameters extends TObject>(
-  definition: Tool<TParameters>,
+	definition: Tool<TParameters>,
 ): Tool<TParameters> {
-  return Object.freeze({ ...definition });
+	return Object.freeze({ ...definition });
 }
 
 /**
@@ -109,27 +147,27 @@ export function createTool<TParameters extends TObject>(
  * Contains the tool name, original error, and number of attempts made.
  */
 export class ToolExecutionError extends Error {
-  /** Name of the tool that failed */
-  readonly toolName: string;
+	/** Name of the tool that failed */
+	readonly toolName: string;
 
-  /** Number of execution attempts that were made */
-  readonly attempts: number;
+	/** Number of execution attempts that were made */
+	readonly attempts: number;
 
-  /** The underlying error that caused the final failure */
-  readonly cause: Error;
+	/** The underlying error that caused the final failure */
+	readonly cause: Error;
 
-  /**
-   * Creates a new ToolExecutionError.
-   *
-   * @param toolName - Name of the tool that failed
-   * @param attempts - Number of attempts made before giving up
-   * @param cause - The underlying error from the last attempt
-   */
-  constructor(toolName: string, attempts: number, cause: Error) {
-    super(`Tool "${toolName}" failed after ${attempts} attempts: ${cause.message}`);
-    this.name = 'ToolExecutionError';
-    this.toolName = toolName;
-    this.attempts = attempts;
-    this.cause = cause;
-  }
+	/**
+	 * Creates a new ToolExecutionError.
+	 *
+	 * @param toolName - Name of the tool that failed
+	 * @param attempts - Number of attempts made before giving up
+	 * @param cause - The underlying error from the last attempt
+	 */
+	constructor(toolName: string, attempts: number, cause: Error) {
+		super(`Tool "${toolName}" failed after ${attempts} attempts: ${cause.message}`);
+		this.name = "ToolExecutionError";
+		this.toolName = toolName;
+		this.attempts = attempts;
+		this.cause = cause;
+	}
 }

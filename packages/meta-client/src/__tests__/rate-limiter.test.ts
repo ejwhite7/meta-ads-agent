@@ -6,7 +6,7 @@
  * threshold enforcement, and wait time calculation.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RateLimiter } from "../api/rate-limiter.js";
 
 describe("RateLimiter", () => {

@@ -5,10 +5,10 @@
  * and section headers. All output goes to stdout.
  */
 
+import boxen from "boxen";
 import chalk from "chalk";
 import Table from "cli-table3";
 import ora, { type Ora } from "ora";
-import boxen from "boxen";
 
 /**
  * Print a formatted table to stdout.
@@ -16,20 +16,17 @@ import boxen from "boxen";
  * @param data - Array of row objects where keys match column names.
  * @param columns - Ordered list of column headers to display.
  */
-export function printTable(
-  data: Array<Record<string, string | number>>,
-  columns: string[],
-): void {
-  const table = new Table({
-    head: columns.map((c) => chalk.bold.cyan(c)),
-    style: { head: [], border: [] },
-  });
+export function printTable(data: Array<Record<string, string | number>>, columns: string[]): void {
+	const table = new Table({
+		head: columns.map((c) => chalk.bold.cyan(c)),
+		style: { head: [], border: [] },
+	});
 
-  for (const row of data) {
-    table.push(columns.map((col) => String(row[col] ?? "")));
-  }
+	for (const row of data) {
+		table.push(columns.map((col) => String(row[col] ?? "")));
+	}
 
-  console.log(table.toString());
+	console.log(table.toString());
 }
 
 /**
@@ -39,7 +36,7 @@ export function printTable(
  * @returns An Ora spinner instance (call `.start()` to begin).
  */
 export function spinner(message: string): Ora {
-  return ora({ text: message, color: "cyan" });
+	return ora({ text: message, color: "cyan" });
 }
 
 /**
@@ -48,7 +45,7 @@ export function spinner(message: string): Ora {
  * @param message - The success message to display.
  */
 export function success(message: string): void {
-  console.log(`${chalk.green("v")} ${message}`);
+	console.log(`${chalk.green("v")} ${message}`);
 }
 
 /**
@@ -57,7 +54,7 @@ export function success(message: string): void {
  * @param message - The error message to display.
  */
 export function error(message: string): void {
-  console.error(`${chalk.red("x")} ${message}`);
+	console.error(`${chalk.red("x")} ${message}`);
 }
 
 /**
@@ -66,11 +63,11 @@ export function error(message: string): void {
  * @param title - The section title text.
  */
 export function section(title: string): void {
-  console.log(
-    boxen(chalk.bold(title), {
-      padding: { top: 0, bottom: 0, left: 1, right: 1 },
-      borderStyle: "round",
-      borderColor: "cyan",
-    }),
-  );
+	console.log(
+		boxen(chalk.bold(title), {
+			padding: { top: 0, bottom: 0, left: 1, right: 1 },
+			borderStyle: "round",
+			borderColor: "cyan",
+		}),
+	);
 }

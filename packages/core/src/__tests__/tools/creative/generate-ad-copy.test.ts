@@ -7,10 +7,10 @@
  * LLM provider that returns preset copy.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { LLMProvider } from "../../../llm/types.js";
 import { generateAdCopyTool } from "../../../tools/creative/generate-ad-copy.js";
 import type { CreativeToolContext } from "../../../tools/creative/types.js";
-import type { LLMProvider } from "../../../llm/types.js";
 
 /**
  * Creates a mock LLMProvider that returns a preset JSON response
@@ -122,7 +122,9 @@ describe("generate_ad_copy tool", () => {
 		);
 
 		expect(result.success).toBe(true);
-		const variations = (result.data as Record<string, unknown>).variations as Array<{ headline: string }>;
+		const variations = (result.data as Record<string, unknown>).variations as Array<{
+			headline: string;
+		}>;
 		expect(variations[0].headline.length).toBeLessThanOrEqual(40);
 	});
 
@@ -153,7 +155,9 @@ describe("generate_ad_copy tool", () => {
 		);
 
 		expect(result.success).toBe(true);
-		const variations = (result.data as Record<string, unknown>).variations as Array<{ body: string }>;
+		const variations = (result.data as Record<string, unknown>).variations as Array<{
+			body: string;
+		}>;
 		expect(variations[0].body.length).toBeLessThanOrEqual(125);
 	});
 
@@ -174,7 +178,9 @@ describe("generate_ad_copy tool", () => {
 		);
 
 		expect(result.success).toBe(true);
-		const variations = (result.data as Record<string, unknown>).variations as Array<{ tone: string }>;
+		const variations = (result.data as Record<string, unknown>).variations as Array<{
+			tone: string;
+		}>;
 		for (const v of variations) {
 			expect(v.tone).toBe("playful");
 		}
@@ -202,7 +208,7 @@ describe("generate_ad_copy tool", () => {
 	});
 
 	it("should handle LLM responses wrapped in markdown code fences", async () => {
-		const wrappedResponse = "```json\n" + PRESET_RESPONSE + "\n```";
+		const wrappedResponse = `\`\`\`json\n${PRESET_RESPONSE}\n\`\`\``;
 		const llm = mockLLMProvider(wrappedResponse);
 		const ctx = mockContext(llm);
 

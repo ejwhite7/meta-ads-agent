@@ -13,12 +13,12 @@
  * 4. Act -- return ranked proposals for the executor
  */
 
-import type { CampaignMetrics, AgentGoal } from '../types.js';
-import type { AgentLoopContext, AgentLoopResult, MetricsSummary } from './types.js';
-import type { ToolDefinition } from '../llm/types.js';
-import { proposeActions } from '../decisions/engine.js';
-import { ToolRegistry } from '../tools/registry.js';
-import { allTools } from '../tools/index.js';
+import { proposeActions } from "../decisions/engine.js";
+import type { ToolDefinition } from "../llm/types.js";
+import { allTools } from "../tools/index.js";
+import { ToolRegistry } from "../tools/registry.js";
+import type { AgentGoal, CampaignMetrics } from "../types.js";
+import type { AgentLoopContext, AgentLoopResult, MetricsSummary } from "./types.js";
 
 /**
  * Creates a pre-populated ToolRegistry with all built-in agent tools.
@@ -30,11 +30,11 @@ import { allTools } from '../tools/index.js';
  * @returns A ToolRegistry instance with all tools registered
  */
 export function createDefaultToolRegistry(): ToolRegistry {
-  const registry = new ToolRegistry();
-  for (const tool of allTools) {
-    registry.register(tool);
-  }
-  return registry;
+	const registry = new ToolRegistry();
+	for (const tool of allTools) {
+		registry.register(tool);
+	}
+	return registry;
 }
 
 /**
@@ -44,28 +44,28 @@ export function createDefaultToolRegistry(): ToolRegistry {
  * @returns Aggregated summary with totals and averages
  */
 function summarizeMetrics(metrics: CampaignMetrics[]): MetricsSummary {
-  if (metrics.length === 0) {
-    return {
-      campaignCount: 0,
-      totalSpend: 0,
-      avgRoas: 0,
-      avgCpa: 0,
-      avgCtr: 0,
-    };
-  }
+	if (metrics.length === 0) {
+		return {
+			campaignCount: 0,
+			totalSpend: 0,
+			avgRoas: 0,
+			avgCpa: 0,
+			avgCtr: 0,
+		};
+	}
 
-  const totalSpend = metrics.reduce((sum, m) => sum + m.spend, 0);
-  const avgRoas = metrics.reduce((sum, m) => sum + m.roas, 0) / metrics.length;
-  const avgCpa = metrics.reduce((sum, m) => sum + m.cpa, 0) / metrics.length;
-  const avgCtr = metrics.reduce((sum, m) => sum + m.ctr, 0) / metrics.length;
+	const totalSpend = metrics.reduce((sum, m) => sum + m.spend, 0);
+	const avgRoas = metrics.reduce((sum, m) => sum + m.roas, 0) / metrics.length;
+	const avgCpa = metrics.reduce((sum, m) => sum + m.cpa, 0) / metrics.length;
+	const avgCtr = metrics.reduce((sum, m) => sum + m.ctr, 0) / metrics.length;
 
-  return {
-    campaignCount: metrics.length,
-    totalSpend,
-    avgRoas,
-    avgCpa,
-    avgCtr,
-  };
+	return {
+		campaignCount: metrics.length,
+		totalSpend,
+		avgRoas,
+		avgCpa,
+		avgCtr,
+	};
 }
 
 /**
@@ -78,11 +78,11 @@ function summarizeMetrics(metrics: CampaignMetrics[]): MetricsSummary {
  * @returns Array of tool definitions for the LLM
  */
 function buildToolDefinitions(context: AgentLoopContext): ToolDefinition[] {
-  return context.toolRegistry.getAll().map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.parameters as unknown as Record<string, unknown>,
-  }));
+	return context.toolRegistry.getAll().map((tool) => ({
+		name: tool.name,
+		description: tool.description,
+		parameters: tool.parameters as unknown as Record<string, unknown>,
+	}));
 }
 
 /**
@@ -93,30 +93,30 @@ function buildToolDefinitions(context: AgentLoopContext): ToolDefinition[] {
  * @returns System prompt string
  */
 function buildSystemPrompt(goals: AgentGoal, adAccountId: string): string {
-  return [
-    'You are an autonomous Meta Ads optimization agent.',
-    `You are managing ad account: ${adAccountId}.`,
-    '',
-    'Your optimization goals:',
-    `- Target ROAS: ${goals.roasTarget}`,
-    `- CPA Cap: $${goals.cpaCap}`,
-    `- Daily Budget Limit: $${goals.dailyBudgetLimit}`,
-    `- Risk Level: ${goals.riskLevel}`,
-    '',
-    'Analyze the campaign metrics and propose optimization actions.',
-    'For each action, provide:',
-    '- toolName: the tool to invoke',
-    '- params: parameters for the tool',
-    '- reasoning: why this action will improve performance',
-    '- expectedOutcome: what you expect to happen',
-    '- confidence: your confidence level (0.0 to 1.0)',
-    '- expectedImpact: estimated impact magnitude (0.0 to 1.0)',
-    '- riskLevel: "low", "medium", or "high"',
-    '',
-    'Return your proposals as a JSON array.',
-    'Be conservative with budget changes -- prefer small incremental adjustments.',
-    'Never propose actions that violate the daily budget limit.',
-  ].join('\n');
+	return [
+		"You are an autonomous Meta Ads optimization agent.",
+		`You are managing ad account: ${adAccountId}.`,
+		"",
+		"Your optimization goals:",
+		`- Target ROAS: ${goals.roasTarget}`,
+		`- CPA Cap: $${goals.cpaCap}`,
+		`- Daily Budget Limit: $${goals.dailyBudgetLimit}`,
+		`- Risk Level: ${goals.riskLevel}`,
+		"",
+		"Analyze the campaign metrics and propose optimization actions.",
+		"For each action, provide:",
+		"- toolName: the tool to invoke",
+		"- params: parameters for the tool",
+		"- reasoning: why this action will improve performance",
+		"- expectedOutcome: what you expect to happen",
+		"- confidence: your confidence level (0.0 to 1.0)",
+		"- expectedImpact: estimated impact magnitude (0.0 to 1.0)",
+		'- riskLevel: "low", "medium", or "high"',
+		"",
+		"Return your proposals as a JSON array.",
+		"Be conservative with budget changes -- prefer small incremental adjustments.",
+		"Never propose actions that violate the daily budget limit.",
+	].join("\n");
 }
 
 /**
@@ -127,30 +127,30 @@ function buildSystemPrompt(goals: AgentGoal, adAccountId: string): string {
  * @returns User prompt string containing metrics data
  */
 function buildUserPrompt(metrics: CampaignMetrics[], summary: MetricsSummary): string {
-  const metricsTable = metrics
-    .map(
-      (m) =>
-        `Campaign ${m.campaignId}: spend=$${m.spend.toFixed(2)}, ` +
-        `roas=${m.roas.toFixed(2)}, cpa=$${m.cpa.toFixed(2)}, ` +
-        `ctr=${(m.ctr * 100).toFixed(2)}%, ` +
-        `impressions=${m.impressions}, clicks=${m.clicks}, ` +
-        `conversions=${m.conversions} (${m.date})`,
-    )
-    .join('\n');
+	const metricsTable = metrics
+		.map(
+			(m) =>
+				`Campaign ${m.campaignId}: spend=$${m.spend.toFixed(2)}, ` +
+				`roas=${m.roas.toFixed(2)}, cpa=$${m.cpa.toFixed(2)}, ` +
+				`ctr=${(m.ctr * 100).toFixed(2)}%, ` +
+				`impressions=${m.impressions}, clicks=${m.clicks}, ` +
+				`conversions=${m.conversions} (${m.date})`,
+		)
+		.join("\n");
 
-  return [
-    'Current campaign performance metrics:',
-    '',
-    metricsTable,
-    '',
-    `Summary: ${summary.campaignCount} campaigns, ` +
-      `total spend $${summary.totalSpend.toFixed(2)}, ` +
-      `avg ROAS ${summary.avgRoas.toFixed(2)}, ` +
-      `avg CPA $${summary.avgCpa.toFixed(2)}, ` +
-      `avg CTR ${(summary.avgCtr * 100).toFixed(2)}%`,
-    '',
-    'Propose optimization actions as a JSON array.',
-  ].join('\n');
+	return [
+		"Current campaign performance metrics:",
+		"",
+		metricsTable,
+		"",
+		`Summary: ${summary.campaignCount} campaigns, ` +
+			`total spend $${summary.totalSpend.toFixed(2)}, ` +
+			`avg ROAS ${summary.avgRoas.toFixed(2)}, ` +
+			`avg CPA $${summary.avgCpa.toFixed(2)}, ` +
+			`avg CTR ${(summary.avgCtr * 100).toFixed(2)}%`,
+		"",
+		"Propose optimization actions as a JSON array.",
+	].join("\n");
 }
 
 /**
@@ -171,42 +171,42 @@ function buildUserPrompt(metrics: CampaignMetrics[], summary: MetricsSummary): s
  * @returns Ranked action proposals, reasoning trace, and metrics summary
  */
 export async function runAgentLoop(context: AgentLoopContext): Promise<AgentLoopResult> {
-  /* OBSERVE: Receive and summarize current metrics */
-  const summary = summarizeMetrics(context.metrics);
+	/* OBSERVE: Receive and summarize current metrics */
+	const summary = summarizeMetrics(context.metrics);
 
-  /* ORIENT: Build prompts with goals and metrics context */
-  const systemPrompt = buildSystemPrompt(context.goals, context.adAccountId);
-  const userPrompt = buildUserPrompt(context.metrics, summary);
-  const toolDefinitions = buildToolDefinitions(context);
+	/* ORIENT: Build prompts with goals and metrics context */
+	const systemPrompt = buildSystemPrompt(context.goals, context.adAccountId);
+	const userPrompt = buildUserPrompt(context.metrics, summary);
+	const toolDefinitions = buildToolDefinitions(context);
 
-  /* DECIDE: Stream LLM reasoning to generate action proposals */
-  const stream = context.llmProvider.streamSimple(userPrompt, systemPrompt);
+	/* DECIDE: Stream LLM reasoning to generate action proposals */
+	const stream = context.llmProvider.streamSimple(userPrompt, systemPrompt);
 
-  /* Consume the stream to get the full reasoning text */
-  let reasoning = '';
-  for await (const chunk of stream) {
-    reasoning += chunk;
-  }
+	/* Consume the stream to get the full reasoning text */
+	let reasoning = "";
+	for await (const chunk of stream) {
+		reasoning += chunk;
+	}
 
-  /* Wait for the final result (same as reasoning for streamSimple) */
-  const fullReasoning = await stream.result();
+	/* Wait for the final result (same as reasoning for streamSimple) */
+	const fullReasoning = await stream.result();
 
-  /* ACT: Score, filter, and rank proposals via the decision engine */
-  const proposals = proposeActions(
-    context.metrics,
-    context.goals,
-    context.toolRegistry.getAll(),
-    fullReasoning,
-    context.guardrails,
-  );
+	/* ACT: Score, filter, and rank proposals via the decision engine */
+	const proposals = proposeActions(
+		context.metrics,
+		context.goals,
+		context.toolRegistry.getAll(),
+		fullReasoning,
+		context.guardrails,
+	);
 
-  /* Enforce maxProposals limit */
-  const limitedProposals = proposals.slice(0, context.maxProposals);
+	/* Enforce maxProposals limit */
+	const limitedProposals = proposals.slice(0, context.maxProposals);
 
-  return {
-    proposals: limitedProposals,
-    reasoning: fullReasoning,
-    metricsSummary: summary,
-    timestamp: new Date().toISOString(),
-  };
+	return {
+		proposals: limitedProposals,
+		reasoning: fullReasoning,
+		metricsSummary: summary,
+		timestamp: new Date().toISOString(),
+	};
 }

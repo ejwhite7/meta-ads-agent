@@ -37,14 +37,11 @@ export class PreviewEndpoints {
 	 * @throws {NotFoundError} If the ad does not exist.
 	 */
 	async getAdPreview(adId: string, format: AdPreviewFormat): Promise<AdPreview> {
-		const response = await this.api.get<ApiResponse<AdPreview[]>>(
-			`/${adId}/previews`,
-			{
-				params: {
-					ad_format: format,
-				},
+		const response = await this.api.get<ApiResponse<AdPreview[]>>(`/${adId}/previews`, {
+			params: {
+				ad_format: format,
 			},
-		);
+		});
 		return response.data[0];
 	}
 

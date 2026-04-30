@@ -437,13 +437,7 @@ export interface AdRuleEvaluationSpec {
  */
 export interface AdRuleExecutionSpec {
 	/** Type of action to perform. */
-	execution_type:
-		| "PAUSE"
-		| "UNPAUSE"
-		| "CHANGE_BUDGET"
-		| "CHANGE_BID"
-		| "ROTATE"
-		| "NOTIFICATION";
+	execution_type: "PAUSE" | "UNPAUSE" | "CHANGE_BUDGET" | "CHANGE_BID" | "ROTATE" | "NOTIFICATION";
 	/** Execution options specific to the action type. */
 	execution_options?: Array<{
 		field: string;
@@ -922,7 +916,10 @@ export interface CreateAudienceParams {
 	/** Website audience rule (required for WEBSITE subtype). */
 	rule?: string;
 	/** Customer list data source (for CUSTOM subtype). */
-	customer_file_source?: "USER_PROVIDED_ONLY" | "PARTNER_PROVIDED_ONLY" | "BOTH_USER_AND_PARTNER_PROVIDED";
+	customer_file_source?:
+		| "USER_PROVIDED_ONLY"
+		| "PARTNER_PROVIDED_ONLY"
+		| "BOTH_USER_AND_PARTNER_PROVIDED";
 }
 
 /** Parameters for creating a lookalike audience. */

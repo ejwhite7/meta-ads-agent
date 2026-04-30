@@ -6,12 +6,12 @@
  * factor ceiling, and human approval thresholds for high-value changes.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
 import type { MetaClient } from "@meta-ads-agent/meta-client";
-import { createTool } from "../types.js";
-import type { ToolContext, ToolResult } from "../types.js";
+import { type Static, Type } from "@sinclair/typebox";
 import type { GuardrailConfig } from "../../decisions/types.js";
 import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
+import { createTool } from "../types.js";
+import type { ToolContext, ToolResult } from "../types.js";
 
 /**
  * TypeBox schema for set_budget tool parameters.
@@ -60,10 +60,7 @@ export function createSetBudgetTool(
 			"Enforces minimum floor, maximum ceiling, and approval thresholds.",
 		parameters: SetBudgetParams,
 
-		async execute(
-			params: SetBudgetInput,
-			context: ToolContext,
-		): Promise<ToolResult> {
+		async execute(params: SetBudgetInput, context: ToolContext): Promise<ToolResult> {
 			const { campaignId, dailyBudget, reason, adSetId } = params;
 			const targetLevel = adSetId ? "ad set" : "campaign";
 			const targetId = adSetId ?? campaignId;
@@ -90,6 +87,9 @@ export function createSetBudgetTool(
 						minDailyBudget: guardrails.minDailyBudget,
 						reason,
 					},
+					error:
+						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
+						`is below the minimum daily budget of $${guardrails.minDailyBudget.toFixed(2)}.`,
 					message:
 						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
 						`is below the minimum daily budget of $${guardrails.minDailyBudget.toFixed(2)}.`,
@@ -110,6 +110,11 @@ export function createSetBudgetTool(
 						maxAllowedBudget: Math.round(maxAllowedBudget * 100) / 100,
 						reason,
 					},
+					error:
+						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
+						`exceeds the maximum ${guardrails.maxBudgetScaleFactor}x scale factor. ` +
+						`Current budget: $${currentBudget.toFixed(2)}, ` +
+						`max allowed: $${maxAllowedBudget.toFixed(2)}.`,
 					message:
 						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
 						`exceeds the maximum ${guardrails.maxBudgetScaleFactor}x scale factor. ` +
@@ -131,10 +136,7 @@ export function createSetBudgetTool(
 						requireApprovalAbove: guardrails.requireApprovalAbove,
 						reason,
 					},
-					message:
-						`Budget change of $${dailyBudget.toFixed(2)} requires human approval ` +
-						`(threshold: $${guardrails.requireApprovalAbove.toFixed(2)}). ` +
-						`Change is pending.`,
+					message: `Budget change of $${dailyBudget.toFixed(2)} requires human approval (threshold: $${guardrails.requireApprovalAbove.toFixed(2)}). Change is pending.`,
 				};
 			}
 
@@ -186,7 +188,7 @@ export function createSetBudgetTool(
 				message:
 					`Successfully set ${targetLevel} ${targetId} daily budget ` +
 					`from $${currentBudget.toFixed(2)} to $${dailyBudget.toFixed(2)} ` +
-					`(${currentBudget > 0 ? ((dailyBudget - currentBudget) / currentBudget * 100).toFixed(1) : "N/A"}% change). ` +
+					`(${currentBudget > 0 ? (((dailyBudget - currentBudget) / currentBudget) * 100).toFixed(1) : "N/A"}% change). ` +
 					`Reason: ${reason}`,
 			};
 		},

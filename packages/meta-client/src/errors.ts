@@ -7,7 +7,7 @@
  * class for unified catch handling.
  */
 
-import { CliExitCode } from "./types.js";
+import type { CliExitCode } from "./types.js";
 
 /**
  * Base error class for all Meta client errors.

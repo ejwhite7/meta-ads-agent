@@ -23,15 +23,13 @@ import { App } from "./App";
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {
-  throw new Error(
-    "Root element not found. Ensure index.html contains <div id=\"root\"></div>.",
-  );
+	throw new Error('Root element not found. Ensure index.html contains <div id="root"></div>.');
 }
 
 ReactDOM.createRoot(rootElement).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>,
+	<React.StrictMode>
+		<BrowserRouter>
+			<App />
+		</BrowserRouter>
+	</React.StrictMode>,
 );

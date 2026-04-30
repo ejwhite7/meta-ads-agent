@@ -1,13 +1,10 @@
 {
-  "extends": "@meta-ads-agent/tsconfig/base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src"
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"],
-  "references": [
-    { "path": "../core" },
-    { "path": "../meta-client" }
-  ]
+	"extends": "@meta-ads-agent/tsconfig/base.json",
+	"compilerOptions": {
+		"outDir": "dist",
+		"rootDir": "src"
+	},
+	"include": ["src/**/*.ts"],
+	"exclude": ["node_modules", "dist", "**/*.test.ts"],
+	"references": [{ "path": "../core" }, { "path": "../meta-client" }]
 }

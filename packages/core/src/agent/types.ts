@@ -6,12 +6,12 @@
  * stateless agent loop and the stateful AgentSession wrapper.
  */
 
-import type { CampaignMetrics, AgentGoal, AgentAction } from '../types.js';
-import type { ActionProposal, GuardrailConfig } from '../decisions/types.js';
-import type { LLMProvider } from '../llm/types.js';
-import type { ToolRegistry } from '../tools/registry.js';
-import type { AuditLogger } from '../audit/logger.js';
-import type { AgentConfig } from '../config/types.js';
+import type { AuditLogger } from "../audit/logger.js";
+import type { AgentConfig } from "../config/types.js";
+import type { ActionProposal, GuardrailConfig } from "../decisions/types.js";
+import type { LLMProvider } from "../llm/types.js";
+import type { ToolRegistry } from "../tools/registry.js";
+import type { AgentAction, AgentGoal, CampaignMetrics } from "../types.js";
 
 /**
  * Input context for a single agent loop iteration.
@@ -20,26 +20,26 @@ import type { AgentConfig } from '../config/types.js';
  * current metrics, goals, available tools, and the LLM provider.
  */
 export interface AgentLoopContext {
-  /** Current campaign metrics from Meta Insights API */
-  readonly metrics: CampaignMetrics[];
+	/** Current campaign metrics from Meta Insights API */
+	readonly metrics: CampaignMetrics[];
 
-  /** Agent optimization goals (ROAS target, CPA cap, etc.) */
-  readonly goals: AgentGoal;
+	/** Agent optimization goals (ROAS target, CPA cap, etc.) */
+	readonly goals: AgentGoal;
 
-  /** Registry of available tools the agent can invoke */
-  readonly toolRegistry: ToolRegistry;
+	/** Registry of available tools the agent can invoke */
+	readonly toolRegistry: ToolRegistry;
 
-  /** LLM provider for reasoning and action proposal generation */
-  readonly llmProvider: LLMProvider;
+	/** LLM provider for reasoning and action proposal generation */
+	readonly llmProvider: LLMProvider;
 
-  /** Maximum number of action proposals to generate per iteration */
-  readonly maxProposals: number;
+	/** Maximum number of action proposals to generate per iteration */
+	readonly maxProposals: number;
 
-  /** Guardrail constraints for the decision engine */
-  readonly guardrails?: Partial<GuardrailConfig>;
+	/** Guardrail constraints for the decision engine */
+	readonly guardrails?: Partial<GuardrailConfig>;
 
-  /** Ad account ID for context in prompts */
-  readonly adAccountId: string;
+	/** Ad account ID for context in prompts */
+	readonly adAccountId: string;
 }
 
 /**
@@ -49,63 +49,63 @@ export interface AgentLoopContext {
  * and a summary of the metrics that informed the decisions.
  */
 export interface AgentLoopResult {
-  /** Ranked action proposals (highest score first) */
-  readonly proposals: ActionProposal[];
+	/** Ranked action proposals (highest score first) */
+	readonly proposals: ActionProposal[];
 
-  /** Full LLM reasoning text for audit logging */
-  readonly reasoning: string;
+	/** Full LLM reasoning text for audit logging */
+	readonly reasoning: string;
 
-  /** Summary metrics used in this iteration */
-  readonly metricsSummary: MetricsSummary;
+	/** Summary metrics used in this iteration */
+	readonly metricsSummary: MetricsSummary;
 
-  /** Timestamp when this iteration completed */
-  readonly timestamp: string;
+	/** Timestamp when this iteration completed */
+	readonly timestamp: string;
 }
 
 /**
  * Aggregated metrics summary for reporting and audit purposes.
  */
 export interface MetricsSummary {
-  /** Total number of active campaigns analyzed */
-  readonly campaignCount: number;
+	/** Total number of active campaigns analyzed */
+	readonly campaignCount: number;
 
-  /** Total spend across all campaigns */
-  readonly totalSpend: number;
+	/** Total spend across all campaigns */
+	readonly totalSpend: number;
 
-  /** Average ROAS across all campaigns */
-  readonly avgRoas: number;
+	/** Average ROAS across all campaigns */
+	readonly avgRoas: number;
 
-  /** Average CPA across all campaigns */
-  readonly avgCpa: number;
+	/** Average CPA across all campaigns */
+	readonly avgCpa: number;
 
-  /** Average CTR across all campaigns */
-  readonly avgCtr: number;
+	/** Average CTR across all campaigns */
+	readonly avgCtr: number;
 }
 
 /**
  * Current status of an AgentSession, exposed for API/dashboard consumption.
  */
 export interface SessionStatus {
-  /** Unique session identifier */
-  readonly sessionId: string;
+	/** Unique session identifier */
+	readonly sessionId: string;
 
-  /** Current session state */
-  readonly state: 'idle' | 'running' | 'paused' | 'stopped' | 'error';
+	/** Current session state */
+	readonly state: "idle" | "running" | "paused" | "stopped" | "error";
 
-  /** Number of completed OODA iterations in this session */
-  readonly iterationCount: number;
+	/** Number of completed OODA iterations in this session */
+	readonly iterationCount: number;
 
-  /** Number of consecutive failures (resets on success) */
-  readonly consecutiveFailures: number;
+	/** Number of consecutive failures (resets on success) */
+	readonly consecutiveFailures: number;
 
-  /** ISO 8601 timestamp of the last successful tick */
-  readonly lastTickAt: string | null;
+	/** ISO 8601 timestamp of the last successful tick */
+	readonly lastTickAt: string | null;
 
-  /** ISO 8601 timestamp of the next scheduled tick */
-  readonly nextTickAt: string | null;
+	/** ISO 8601 timestamp of the next scheduled tick */
+	readonly nextTickAt: string | null;
 
-  /** Error message from the last failure (null if last tick succeeded) */
-  readonly lastError: string | null;
+	/** Error message from the last failure (null if last tick succeeded) */
+	readonly lastError: string | null;
 }
 
 /**
@@ -115,41 +115,45 @@ export interface SessionStatus {
  * (tool registry, LLM provider, audit logger, database).
  */
 export interface AgentSessionConfig {
-  /** Validated agent configuration */
-  readonly config: AgentConfig;
+	/** Validated agent configuration */
+	readonly config: AgentConfig;
 
-  /** Registry of available tools */
-  readonly toolRegistry: ToolRegistry;
+	/** Registry of available tools */
+	readonly toolRegistry: ToolRegistry;
 
-  /** LLM provider for reasoning */
-  readonly llmProvider: LLMProvider;
+	/** LLM provider for reasoning */
+	readonly llmProvider: LLMProvider;
 
-  /** Audit logger for recording decisions */
-  readonly auditLogger: AuditLogger;
+	/** Audit logger for recording decisions */
+	readonly auditLogger: AuditLogger;
 
-  /** Agent optimization goals */
-  readonly goals: AgentGoal;
+	/** Agent optimization goals */
+	readonly goals: AgentGoal;
 
-  /** Guardrail constraints */
-  readonly guardrails?: Partial<GuardrailConfig>;
+	/** Guardrail constraints */
+	readonly guardrails?: Partial<GuardrailConfig>;
 
-  /** Function to fetch current campaign metrics (injected for testability) */
-  readonly fetchMetrics: () => Promise<CampaignMetrics[]>;
+	/** Function to fetch current campaign metrics (injected for testability) */
+	readonly fetchMetrics: () => Promise<CampaignMetrics[]>;
+
+	/** Meta API client instance */
+	// biome-ignore lint/suspicious/noExplicitAny: accepts any MetaClient-compatible object
+	readonly metaClient: any;
 }
 
 /**
  * Result of a single session tick (one complete OODA cycle).
  */
 export interface SessionResult {
-  /** Whether the tick completed successfully */
-  readonly success: boolean;
+	/** Whether the tick completed successfully */
+	readonly success: boolean;
 
-  /** Agent loop result (null if the tick failed) */
-  readonly loopResult: AgentLoopResult | null;
+	/** Agent loop result (null if the tick failed) */
+	readonly loopResult: AgentLoopResult | null;
 
-  /** Actions that were executed (subset of proposals that passed guardrails) */
-  readonly executedActions: AgentAction[];
+	/** Actions that were executed (subset of proposals that passed guardrails) */
+	readonly executedActions: AgentAction[];
 
-  /** Error message if the tick failed */
-  readonly error: string | null;
+	/** Error message if the tick failed */
+	readonly error: string | null;
 }

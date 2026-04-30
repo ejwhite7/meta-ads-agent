@@ -11,38 +11,38 @@
  * ensuring type safety and catching misconfigurations early.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import { AgentConfigSchema, type AgentConfig, type AgentConfigInput } from './types.js';
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { type AgentConfig, type AgentConfigInput, AgentConfigSchema } from "./types.js";
 
 /**
  * Default path to the optional JSON config file.
  * Located at ~/.meta-ads-agent/config.json for per-user configuration.
  */
-const CONFIG_FILE_PATH = join(homedir(), '.meta-ads-agent', 'config.json');
+const CONFIG_FILE_PATH = join(homedir(), ".meta-ads-agent", "config.json");
 
 /**
  * Maps environment variable names to their corresponding config keys.
  * Only variables with the META_AGENT_ prefix or well-known names are mapped.
  */
 const ENV_MAP: Record<string, keyof AgentConfigInput> = {
-  LLM_PROVIDER: 'llmProvider',
-  LLM_MODEL: 'llmModel',
-  ANTHROPIC_API_KEY: 'anthropicApiKey',
-  OPENAI_API_KEY: 'openaiApiKey',
-  META_AD_ACCOUNT_ID: 'metaAdAccountId',
-  META_ACCESS_TOKEN: 'metaAccessToken',
-  TICK_INTERVAL_MS: 'tickIntervalMs',
-  MAX_ITERATIONS_PER_RUN: 'maxIterationsPerRun',
-  MAX_RETRIES: 'maxRetries',
-  RETRY_BACKOFF_MS: 'retryBackoffMs',
-  LOOKBACK_DAYS: 'lookbackDays',
-  DRY_RUN: 'dryRun',
-  DB_TYPE: 'dbType',
-  SQLITE_PATH: 'sqlitePath',
-  DATABASE_URL: 'postgresUrl',
-  LOG_LEVEL: 'logLevel',
+	LLM_PROVIDER: "llmProvider",
+	LLM_MODEL: "llmModel",
+	ANTHROPIC_API_KEY: "anthropicApiKey",
+	OPENAI_API_KEY: "openaiApiKey",
+	META_AD_ACCOUNT_ID: "metaAdAccountId",
+	META_ACCESS_TOKEN: "metaAccessToken",
+	TICK_INTERVAL_MS: "tickIntervalMs",
+	MAX_ITERATIONS_PER_RUN: "maxIterationsPerRun",
+	MAX_RETRIES: "maxRetries",
+	RETRY_BACKOFF_MS: "retryBackoffMs",
+	LOOKBACK_DAYS: "lookbackDays",
+	DRY_RUN: "dryRun",
+	DB_TYPE: "dbType",
+	SQLITE_PATH: "sqlitePath",
+	DATABASE_URL: "postgresUrl",
+	LOG_LEVEL: "logLevel",
 };
 
 /**
@@ -53,20 +53,20 @@ const ENV_MAP: Record<string, keyof AgentConfigInput> = {
  * @returns Parsed config object, or empty object on failure
  */
 function readConfigFile(filePath: string): Record<string, unknown> {
-  if (!existsSync(filePath)) {
-    return {};
-  }
+	if (!existsSync(filePath)) {
+		return {};
+	}
 
-  try {
-    const raw = readFileSync(filePath, 'utf-8');
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return {};
-  } catch {
-    return {};
-  }
+	try {
+		const raw = readFileSync(filePath, "utf-8");
+		const parsed: unknown = JSON.parse(raw);
+		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+			return parsed as Record<string, unknown>;
+		}
+		return {};
+	} catch {
+		return {};
+	}
 }
 
 /**
@@ -76,31 +76,39 @@ function readConfigFile(filePath: string): Record<string, unknown> {
  * @returns Partial config object with values found in the environment
  */
 function readEnvVars(): Partial<AgentConfigInput> {
-  const result: Record<string, unknown> = {};
+	const result: Record<string, unknown> = {};
 
-  for (const [envKey, configKey] of Object.entries(ENV_MAP)) {
-    const value = process.env[envKey];
-    if (value === undefined) continue;
+	for (const [envKey, configKey] of Object.entries(ENV_MAP)) {
+		const value = process.env[envKey];
+		if (value === undefined) continue;
 
-    /* Convert numeric env vars to numbers */
-    if (['tickIntervalMs', 'maxIterationsPerRun', 'maxRetries', 'retryBackoffMs', 'lookbackDays'].includes(configKey)) {
-      const num = Number(value);
-      if (!Number.isNaN(num)) {
-        result[configKey] = num;
-      }
-      continue;
-    }
+		/* Convert numeric env vars to numbers */
+		if (
+			[
+				"tickIntervalMs",
+				"maxIterationsPerRun",
+				"maxRetries",
+				"retryBackoffMs",
+				"lookbackDays",
+			].includes(configKey)
+		) {
+			const num = Number(value);
+			if (!Number.isNaN(num)) {
+				result[configKey] = num;
+			}
+			continue;
+		}
 
-    /* Convert boolean env vars */
-    if (configKey === 'dryRun') {
-      result[configKey] = value === 'true' || value === '1';
-      continue;
-    }
+		/* Convert boolean env vars */
+		if (configKey === "dryRun") {
+			result[configKey] = value === "true" || value === "1";
+			continue;
+		}
 
-    result[configKey] = value;
-  }
+		result[configKey] = value;
+	}
 
-  return result as Partial<AgentConfigInput>;
+	return result as Partial<AgentConfigInput>;
 }
 
 /**
@@ -115,25 +123,25 @@ function readEnvVars(): Partial<AgentConfigInput> {
  * @throws {Error} When validation fails — message includes all Zod issue details
  */
 export function loadConfig(overrides?: Partial<AgentConfigInput>): AgentConfig {
-  const fileConfig = readConfigFile(CONFIG_FILE_PATH);
-  const envConfig = readEnvVars();
+	const fileConfig = readConfigFile(CONFIG_FILE_PATH);
+	const envConfig = readEnvVars();
 
-  const merged = {
-    ...fileConfig,
-    ...envConfig,
-    ...(overrides ?? {}),
-  };
+	const merged = {
+		...fileConfig,
+		...envConfig,
+		...(overrides ?? {}),
+	};
 
-  const result = AgentConfigSchema.safeParse(merged);
+	const result = AgentConfigSchema.safeParse(merged);
 
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
-      .join('\n');
-    throw new Error(`Invalid agent configuration:\n${issues}`);
-  }
+	if (!result.success) {
+		const issues = result.error.issues
+			.map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
+			.join("\n");
+		throw new Error(`Invalid agent configuration:\n${issues}`);
+	}
 
-  return result.data;
+	return result.data;
 }
 
-export { AgentConfigSchema, type AgentConfig, type AgentConfigInput } from './types.js';
+export { AgentConfigSchema, type AgentConfig, type AgentConfigInput } from "./types.js";

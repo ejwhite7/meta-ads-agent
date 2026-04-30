@@ -13,15 +13,15 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { createTool } from "../types.js";
+import { type ToolResult, createTool } from "../types.js";
 import type {
 	Anomaly,
-	AnomalyType,
 	AnomalySeverity,
-	ReportingToolContext,
+	AnomalyType,
 	InsightsResultLike,
+	ReportingToolContext,
 } from "./types.js";
-import { safeParseFloat, extractConversions } from "./utils.js";
+import { extractConversions, safeParseFloat } from "./utils.js";
 
 /**
  * Threshold configuration for each sensitivity level.
@@ -76,12 +76,11 @@ const DetectAnomaliesParams = Type.Object({
 	adAccountId: Type.String({ description: "Meta ad account ID (e.g., 'act_123456789')" }),
 	/** Sensitivity level controlling detection thresholds. */
 	sensitivityLevel: Type.Union(
-		[
-			Type.Literal("low"),
-			Type.Literal("medium"),
-			Type.Literal("high"),
-		],
-		{ description: "Detection sensitivity: 'low' (severe only), 'medium' (standard), 'high' (aggressive)" },
+		[Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")],
+		{
+			description:
+				"Detection sensitivity: 'low' (severe only), 'medium' (standard), 'high' (aggressive)",
+		},
 	),
 });
 
@@ -114,13 +113,14 @@ export const detectAnomalies = createTool({
 		"metrics to a 7-day baseline. Detects CPA spikes, CTR drops, delivery issues, " +
 		"budget exhaustion, and conversion rate collapses.",
 	parameters: DetectAnomaliesParams,
-	async execute(params, context): Promise<{ success: boolean; data: Record<string, unknown> | null; message: string }> {
+	async execute(params, context): Promise<ToolResult> {
 		const ctx = context as ReportingToolContext;
 
 		if (!ctx.metaClient) {
 			return {
 				success: false,
 				data: null,
+				error: "MetaClient is not available in the tool context.",
 				message: "MetaClient is not available in the tool context.",
 			};
 		}
@@ -221,6 +221,7 @@ export const detectAnomalies = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to detect anomalies: ${errMessage}`,
 				message: `Failed to detect anomalies: ${errMessage}`,
 			};
 		}
@@ -297,7 +298,8 @@ function detectCpaSpike(
 			baseline: baseline.cpa,
 			changePercent,
 			message: `CPA spiked to $${todayCpa.toFixed(2)} (baseline: $${baseline.cpa.toFixed(2)}, +${changePercent.toFixed(1)}%).`,
-			recommendedAction: "Review recent targeting or creative changes. Consider pausing underperforming ad sets and reallocating budget to higher-performing ones.",
+			recommendedAction:
+				"Review recent targeting or creative changes. Consider pausing underperforming ad sets and reallocating budget to higher-performing ones.",
 		});
 	}
 }
@@ -332,7 +334,8 @@ function detectCtrDrop(
 			baseline: baseline.ctr,
 			changePercent,
 			message: `CTR dropped to ${(todayCtr * 100).toFixed(2)}% (baseline: ${(baseline.ctr * 100).toFixed(2)}%, ${changePercent.toFixed(1)}%).`,
-			recommendedAction: "Refresh ad creatives, test new headlines and images, or narrow targeting to a more relevant audience.",
+			recommendedAction:
+				"Refresh ad creatives, test new headlines and images, or narrow targeting to a more relevant audience.",
 		});
 	}
 }
@@ -370,7 +373,8 @@ function detectDeliveryIssue(
 			baseline: baseline.impressions,
 			changePercent,
 			message: `Impressions dropped by ${(dropFraction * 100).toFixed(1)}% (today: ${todayImpressions.toLocaleString()}, baseline: ${baseline.impressions.toFixed(0)}).`,
-			recommendedAction: "Check for audience saturation, ad disapprovals, or billing issues. Verify the campaign is not in learning limited status.",
+			recommendedAction:
+				"Check for audience saturation, ad disapprovals, or billing issues. Verify the campaign is not in learning limited status.",
 		});
 	}
 }
@@ -415,7 +419,8 @@ function detectBudgetExhaustion(
 			baseline: dailyBudget,
 			changePercent,
 			message: `Campaign has spent ${(usageFraction * 100).toFixed(1)}% of daily budget ($${todaySpend.toFixed(2)} / $${dailyBudget.toFixed(2)}) before 6pm.`,
-			recommendedAction: "Consider increasing the daily budget or switching to lifetime budget to allow Meta's pacing algorithm to optimize delivery.",
+			recommendedAction:
+				"Consider increasing the daily budget or switching to lifetime budget to allow Meta's pacing algorithm to optimize delivery.",
 		});
 	}
 }
@@ -456,7 +461,8 @@ function detectConversionCollapse(
 			baseline: baseline.conversionRate,
 			changePercent,
 			message: `Conversion rate collapsed to ${(todayConversionRate * 100).toFixed(2)}% (baseline: ${(baseline.conversionRate * 100).toFixed(2)}%, ${changePercent.toFixed(1)}%).`,
-			recommendedAction: "Check landing page performance, verify pixel/conversion tracking is firing correctly, and review if targeting changes reduced lead quality.",
+			recommendedAction:
+				"Check landing page performance, verify pixel/conversion tracking is firing correctly, and review if targeting changes reduced lead quality.",
 		});
 	}
 }

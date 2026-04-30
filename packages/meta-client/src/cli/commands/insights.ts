@@ -8,7 +8,7 @@
  * not directly available in the API response.
  */
 
-import type { InsightsQueryParams, InsightsResult, InsightsAction } from "../../types.js";
+import type { InsightsAction, InsightsQueryParams, InsightsResult } from "../../types.js";
 import type { CLIWrapper } from "../wrapper.js";
 
 /**
@@ -107,10 +107,7 @@ export class InsightsCommands {
 
 		let total = 0;
 		for (const action of actions) {
-			if (
-				action.action_type === "purchase" ||
-				action.action_type === "omni_purchase"
-			) {
+			if (action.action_type === "purchase" || action.action_type === "omni_purchase") {
 				const value = Number.parseFloat(action.value);
 				if (!Number.isNaN(value)) {
 					total += value;

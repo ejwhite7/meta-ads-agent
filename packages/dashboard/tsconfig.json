@@ -1,13 +1,22 @@
 {
-  "extends": "@meta-ads-agent/tsconfig/base.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
-    "jsx": "react-jsx",
-    "composite": false,
-    "declaration": false,
-    "declarationMap": false
-  },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist"]
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"jsx": "react-jsx",
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"isolatedModules": true,
+		"resolveJsonModule": true,
+		"declaration": false,
+		"declarationMap": false,
+		"composite": false,
+		"outDir": "dist",
+		"rootDir": "src",
+		"types": ["vite/client"]
+	},
+	"include": ["src/**/*.ts", "src/**/*.tsx"],
+	"exclude": ["node_modules", "dist"]
 }

@@ -12,7 +12,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { createTool } from "../types.js";
+import { type ToolResult, createTool } from "../types.js";
 
 /**
  * TypeBox schema for send-slack-webhook parameters.
@@ -24,17 +24,14 @@ const SendSlackWebhookParams = Type.Object({
 	}),
 	/** Message content to send. Can be a plain string or JSON-serialized object. */
 	message: Type.String({
-		description: "Message content: plain text, JSON-serialized PerformanceReport, or anomaly summary",
+		description:
+			"Message content: plain text, JSON-serialized PerformanceReport, or anomaly summary",
 	}),
 	/** Type of message, which determines the Slack Block Kit formatting. */
-	type: Type.Union(
-		[
-			Type.Literal("report"),
-			Type.Literal("alert"),
-			Type.Literal("action_taken"),
-		],
-		{ description: "Message type: 'report' for metrics summary, 'alert' for anomaly warnings, 'action_taken' for agent actions" },
-	),
+	type: Type.Union([Type.Literal("report"), Type.Literal("alert"), Type.Literal("action_taken")], {
+		description:
+			"Message type: 'report' for metrics summary, 'alert' for anomaly warnings, 'action_taken' for agent actions",
+	}),
 });
 
 /**
@@ -74,7 +71,7 @@ export const sendSlackWebhook = createTool({
 		"Supports 'alert' (red anomaly warnings), 'report' (metrics summary), and " +
 		"'action_taken' (green action confirmation) message types.",
 	parameters: SendSlackWebhookParams,
-	async execute(params, _context): Promise<{ success: boolean; data: Record<string, unknown> | null; message: string }> {
+	async execute(params, _context): Promise<ToolResult> {
 		try {
 			const blocks = buildSlackBlocks(params.message, params.type);
 
@@ -94,6 +91,7 @@ export const sendSlackWebhook = createTool({
 				return {
 					success: false,
 					data: { error: responseText, statusCode: response.status },
+					error: `Slack webhook failed with status ${response.status}: ${responseText}`,
 					message: `Slack webhook failed with status ${response.status}: ${responseText}`,
 				};
 			}
@@ -108,6 +106,7 @@ export const sendSlackWebhook = createTool({
 			return {
 				success: false,
 				data: { error: errMessage },
+				error: `Failed to send Slack webhook: ${errMessage}`,
 				message: `Failed to send Slack webhook: ${errMessage}`,
 			};
 		}
@@ -182,16 +181,13 @@ function buildAlertBlocks(message: string): SlackBlock[] {
 				.join("\n");
 
 			if (actions) {
-				blocks.push(
-					{ type: "divider" } as SlackBlock,
-					{
-						type: "section",
-						text: {
-							type: "mrkdwn",
-							text: `*Recommended Actions:*\n${actions}`,
-						},
+				blocks.push({ type: "divider" } as SlackBlock, {
+					type: "section",
+					text: {
+						type: "mrkdwn",
+						text: `*Recommended Actions:*\n${actions}`,
 					},
-				);
+				});
 			}
 		} else {
 			blocks.push({
@@ -237,8 +233,14 @@ function buildReportBlocks(message: string): SlackBlock[] {
 				type: "section",
 				fields: [
 					{ type: "mrkdwn", text: `*Total Spend:*\n$${Number(summary.totalSpend).toFixed(2)}` },
-					{ type: "mrkdwn", text: `*Total Impressions:*\n${Number(summary.totalImpressions).toLocaleString()}` },
-					{ type: "mrkdwn", text: `*Total Clicks:*\n${Number(summary.totalClicks).toLocaleString()}` },
+					{
+						type: "mrkdwn",
+						text: `*Total Impressions:*\n${Number(summary.totalImpressions).toLocaleString()}`,
+					},
+					{
+						type: "mrkdwn",
+						text: `*Total Clicks:*\n${Number(summary.totalClicks).toLocaleString()}`,
+					},
 					{ type: "mrkdwn", text: `*Avg CTR:*\n${(Number(summary.avgCTR) * 100).toFixed(2)}%` },
 					{ type: "mrkdwn", text: `*Avg ROAS:*\n${Number(summary.avgROAS).toFixed(2)}x` },
 					{ type: "mrkdwn", text: `*Avg CPA:*\n$${Number(summary.avgCPA).toFixed(2)}` },

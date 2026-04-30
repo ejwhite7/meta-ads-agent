@@ -23,5 +23,5 @@ import { twMerge } from "tailwind-merge";
  * // Returns "py-2 px-6 bg-blue-500" when isActive is true
  */
 export function cn(...inputs: ClassValue[]): string {
-  return twMerge(clsx(inputs));
+	return twMerge(clsx(inputs));
 }

@@ -14,23 +14,23 @@
  * computing a composite score, and assigning a risk level.
  */
 export interface ActionProposal {
-  /** Name of the tool to invoke (must match a registered tool name) */
-  readonly toolName: string;
+	/** Name of the tool to invoke (must match a registered tool name) */
+	readonly toolName: string;
 
-  /** Parameters to pass to the tool's execute function */
-  readonly params: Record<string, unknown>;
+	/** Parameters to pass to the tool's execute function */
+	readonly params: Record<string, unknown>;
 
-  /** Human-readable explanation of why this action was proposed */
-  readonly reasoning: string;
+	/** Human-readable explanation of why this action was proposed */
+	readonly reasoning: string;
 
-  /** Composite score: (expectedImpact * confidence) / (risk + 0.1) */
-  readonly score: number;
+	/** Composite score: (expectedImpact * confidence) / (risk + 0.1) */
+	readonly score: number;
 
-  /** Risk classification based on action type and magnitude */
-  readonly riskLevel: 'low' | 'medium' | 'high';
+	/** Risk classification based on action type and magnitude */
+	readonly riskLevel: "low" | "medium" | "high";
 
-  /** Description of what the agent expects to happen after execution */
-  readonly expectedOutcome: string;
+	/** Description of what the agent expects to happen after execution */
+	readonly expectedOutcome: string;
 }
 
 /**
@@ -40,27 +40,27 @@ export interface ActionProposal {
  * and ensure human oversight for high-impact decisions.
  */
 export interface GuardrailConfig {
-  /** Minimum daily budget — the agent will never reduce below this (default: $5) */
-  readonly minDailyBudget: number;
+	/** Minimum daily budget — the agent will never reduce below this (default: $5) */
+	readonly minDailyBudget: number;
 
-  /** Maximum budget scale factor per cycle — caps how fast budgets can grow (default: 2.0x) */
-  readonly maxBudgetScaleFactor: number;
+	/** Maximum budget scale factor per cycle — caps how fast budgets can grow (default: 2.0x) */
+	readonly maxBudgetScaleFactor: number;
 
-  /** Maximum number of actions the agent can take per OODA cycle (default: 5) */
-  readonly maxActionsPerCycle: number;
+	/** Maximum number of actions the agent can take per OODA cycle (default: 5) */
+	readonly maxActionsPerCycle: number;
 
-  /** Budget change threshold above which human approval is required (default: $1000) */
-  readonly requireApprovalAbove: number;
+	/** Budget change threshold above which human approval is required (default: $1000) */
+	readonly requireApprovalAbove: number;
 }
 
 /**
  * Default guardrail values used when no custom config is provided.
  */
 export const DEFAULT_GUARDRAILS: GuardrailConfig = {
-  minDailyBudget: 5,
-  maxBudgetScaleFactor: 2.0,
-  maxActionsPerCycle: 5,
-  requireApprovalAbove: 1000,
+	minDailyBudget: 5,
+	maxBudgetScaleFactor: 2.0,
+	maxActionsPerCycle: 5,
+	requireApprovalAbove: 1000,
 };
 
 /**
@@ -68,24 +68,24 @@ export const DEFAULT_GUARDRAILS: GuardrailConfig = {
  * This is the intermediate format between LLM output parsing and scoring.
  */
 export interface RawProposedAction {
-  /** Name of the tool to invoke */
-  readonly toolName: string;
+	/** Name of the tool to invoke */
+	readonly toolName: string;
 
-  /** Parameters for the tool */
-  readonly params: Record<string, unknown>;
+	/** Parameters for the tool */
+	readonly params: Record<string, unknown>;
 
-  /** LLM's reasoning for this action */
-  readonly reasoning: string;
+	/** LLM's reasoning for this action */
+	readonly reasoning: string;
 
-  /** Expected outcome description */
-  readonly expectedOutcome: string;
+	/** Expected outcome description */
+	readonly expectedOutcome: string;
 
-  /** LLM's confidence in this action (0.0 to 1.0) */
-  readonly confidence: number;
+	/** LLM's confidence in this action (0.0 to 1.0) */
+	readonly confidence: number;
 
-  /** LLM's estimate of the action's impact (0.0 to 1.0) */
-  readonly expectedImpact: number;
+	/** LLM's estimate of the action's impact (0.0 to 1.0) */
+	readonly expectedImpact: number;
 
-  /** Risk classification */
-  readonly riskLevel: 'low' | 'medium' | 'high';
+	/** Risk classification */
+	readonly riskLevel: "low" | "medium" | "high";
 }

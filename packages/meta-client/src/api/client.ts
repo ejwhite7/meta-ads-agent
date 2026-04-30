@@ -17,7 +17,7 @@ import axios, {
 	type AxiosResponse,
 	type AxiosError,
 } from "axios";
-import { MetaError, RateLimitError, AuthError, NotFoundError, ValidationError } from "../errors.js";
+import { AuthError, MetaError, NotFoundError, RateLimitError, ValidationError } from "../errors.js";
 import { RateLimiter } from "./rate-limiter.js";
 
 /** Base URL for the Meta Marketing API. */
@@ -136,11 +136,7 @@ export class ApiClient {
 	/**
 	 * Core request method with authentication, rate limiting, and retry logic.
 	 */
-	private async request<T>(
-		method: string,
-		path: string,
-		config?: AxiosRequestConfig,
-	): Promise<T> {
+	private async request<T>(method: string, path: string, config?: AxiosRequestConfig): Promise<T> {
 		await this.rateLimiter.acquire(this.adAccountId);
 
 		let lastError: Error | undefined;
@@ -181,7 +177,7 @@ export class ApiClient {
 			url: path,
 			...config,
 			params: {
-				access_token: this.accessToken,
+				// access_token moved to Authorization header
 				...config?.params,
 			},
 		});
@@ -234,10 +230,7 @@ export class ApiClient {
 		}
 
 		if (!axios.isAxiosError(error)) {
-			return new MetaError(
-				error instanceof Error ? error.message : String(error),
-				"UNKNOWN",
-			);
+			return new MetaError(error instanceof Error ? error.message : String(error), "UNKNOWN");
 		}
 
 		const axiosError = error as AxiosError<{

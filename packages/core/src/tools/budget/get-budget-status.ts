@@ -7,8 +7,8 @@
  * within the reporting period.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
 import type { MetaClient } from "@meta-ads-agent/meta-client";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 
@@ -28,11 +28,7 @@ const GetBudgetStatusParams = Type.Object({
 	adAccountId: Type.String({ description: "Meta ad account ID (format: act_XXXXXXXXX)" }),
 	/** Predefined date range for the budget analysis. */
 	datePreset: Type.Union(
-		[
-			Type.Literal("today"),
-			Type.Literal("last_7d"),
-			Type.Literal("this_month"),
-		],
+		[Type.Literal("today"), Type.Literal("last_7d"), Type.Literal("this_month")],
 		{ description: "Date range preset for budget analysis" },
 	),
 });
@@ -105,17 +101,12 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 			"projected month-end spend.",
 		parameters: GetBudgetStatusParams,
 
-		async execute(
-			params: GetBudgetStatusInput,
-			context: ToolContext,
-		): Promise<ToolResult> {
+		async execute(params: GetBudgetStatusInput, context: ToolContext): Promise<ToolResult> {
 			const now = new Date(context.timestamp);
 
 			/* Fetch campaign list to compute total budget */
 			const campaigns = await client.campaigns.list(params.adAccountId);
-			const activeCampaigns = campaigns.filter(
-				(c) => c.status === "ACTIVE",
-			);
+			const activeCampaigns = campaigns.filter((c) => c.status === "ACTIVE");
 
 			/* Sum daily budgets across active campaigns (budgets are in cents) */
 			let totalDailyBudgetCents = 0;
@@ -141,10 +132,7 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 			/* Compute pacing */
 			const { daysElapsed, totalDays } = computePeriodDays(params.datePreset, now);
 			const periodBudget = totalDailyBudget * totalDays;
-			const expectedSpend =
-				periodBudget > 0
-					? periodBudget * (daysElapsed / totalDays)
-					: 0;
+			const expectedSpend = periodBudget > 0 ? periodBudget * (daysElapsed / totalDays) : 0;
 
 			const pacingRatio = expectedSpend > 0 ? totalSpend / expectedSpend : 0;
 			const pacing = classifyPacing(pacingRatio);
@@ -157,10 +145,7 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 			const month = now.getMonth();
 			const daysInMonth = new Date(year, month + 1, 0).getDate();
 			const dayOfMonth = now.getDate();
-			const projectedMonthEndSpend =
-				dayOfMonth > 0
-					? (totalSpend / dayOfMonth) * daysInMonth
-					: 0;
+			const projectedMonthEndSpend = dayOfMonth > 0 ? (totalSpend / dayOfMonth) * daysInMonth : 0;
 
 			return {
 				success: true,

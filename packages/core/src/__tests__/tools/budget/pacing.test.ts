@@ -6,7 +6,7 @@
  * underpacing detection with realistic campaign scenarios.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createGetBudgetStatusTool } from "../../../tools/budget/get-budget-status.js";
 import { createGetPacingAlertsTool } from "../../../tools/budget/get-pacing-alerts.js";
 import type { ToolContext } from "../../../tools/types.js";
@@ -14,30 +14,32 @@ import type { ToolContext } from "../../../tools/types.js";
 /**
  * Creates a mock MetaClient with configurable campaign and insights responses.
  */
-function createMockClient(overrides: {
-	campaigns?: Array<{
-		id: string;
-		name: string;
-		status: string;
-		daily_budget?: string;
-		objective?: string;
-		bid_strategy?: string;
-		created_time?: string;
-		updated_time?: string;
-	}>;
-	insights?: Array<{
-		campaign_id?: string;
-		campaign_name?: string;
-		spend: string;
-		impressions?: string;
-		clicks?: string;
-		actions?: Array<{ action_type: string; value: string }>;
-		ctr?: string;
-		cpm?: string;
-		date_start?: string;
-		date_stop?: string;
-	}>;
-} = {}) {
+function createMockClient(
+	overrides: {
+		campaigns?: Array<{
+			id: string;
+			name: string;
+			status: string;
+			daily_budget?: string;
+			objective?: string;
+			bid_strategy?: string;
+			created_time?: string;
+			updated_time?: string;
+		}>;
+		insights?: Array<{
+			campaign_id?: string;
+			campaign_name?: string;
+			spend: string;
+			impressions?: string;
+			clicks?: string;
+			actions?: Array<{ action_type: string; value: string }>;
+			ctr?: string;
+			cpm?: string;
+			date_start?: string;
+			date_stop?: string;
+		}>;
+	} = {},
+) {
 	return {
 		campaigns: {
 			list: vi.fn().mockResolvedValue(overrides.campaigns ?? []),
@@ -106,7 +108,7 @@ describe("get_budget_status pacing calculations", () => {
 
 		expect(result.success).toBe(true);
 		expect(result.data).not.toBeNull();
-		expect(result.data!.pacing).toBe("on_track");
+		expect(result.data?.pacing).toBe("on_track");
 	});
 
 	it("should detect overpacing when spend exceeds 110% of expected", async () => {
@@ -124,7 +126,17 @@ describe("get_budget_status pacing calculations", () => {
 					updated_time: "2026-01-15T00:00:00Z",
 				},
 			],
-			insights: [{ spend: "2000.00", impressions: "200000", clicks: "10000", ctr: "0.05", cpm: "10.00", date_start: "2026-01-01", date_stop: "2026-01-31" }],
+			insights: [
+				{
+					spend: "2000.00",
+					impressions: "200000",
+					clicks: "10000",
+					ctr: "0.05",
+					cpm: "10.00",
+					date_start: "2026-01-01",
+					date_stop: "2026-01-31",
+				},
+			],
 		});
 
 		const tool = createGetBudgetStatusTool(client);
@@ -134,8 +146,8 @@ describe("get_budget_status pacing calculations", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.data!.pacing).toBe("overpacing");
-		expect(result.data!.pacingRatio).toBeGreaterThan(1.1);
+		expect(result.data?.pacing).toBe("overpacing");
+		expect(result.data?.pacingRatio).toBeGreaterThan(1.1);
 	});
 
 	it("should detect underpacing when spend is below 90% of expected", async () => {
@@ -153,7 +165,17 @@ describe("get_budget_status pacing calculations", () => {
 					updated_time: "2026-01-15T00:00:00Z",
 				},
 			],
-			insights: [{ spend: "800.00", impressions: "50000", clicks: "2500", ctr: "0.05", cpm: "16.00", date_start: "2026-01-01", date_stop: "2026-01-31" }],
+			insights: [
+				{
+					spend: "800.00",
+					impressions: "50000",
+					clicks: "2500",
+					ctr: "0.05",
+					cpm: "16.00",
+					date_start: "2026-01-01",
+					date_stop: "2026-01-31",
+				},
+			],
 		});
 
 		const tool = createGetBudgetStatusTool(client);
@@ -163,8 +185,8 @@ describe("get_budget_status pacing calculations", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.data!.pacing).toBe("underpacing");
-		expect(result.data!.pacingRatio).toBeLessThan(0.9);
+		expect(result.data?.pacing).toBe("underpacing");
+		expect(result.data?.pacingRatio).toBeLessThan(0.9);
 	});
 
 	it("should compute correct burn rate from total spend and elapsed days", async () => {
@@ -180,7 +202,17 @@ describe("get_budget_status pacing calculations", () => {
 					updated_time: "2026-01-15T00:00:00Z",
 				},
 			],
-			insights: [{ spend: "750.00", impressions: "50000", clicks: "2500", ctr: "0.05", cpm: "15.00", date_start: "2026-01-01", date_stop: "2026-01-15" }],
+			insights: [
+				{
+					spend: "750.00",
+					impressions: "50000",
+					clicks: "2500",
+					ctr: "0.05",
+					cpm: "15.00",
+					date_start: "2026-01-01",
+					date_stop: "2026-01-15",
+				},
+			],
 		});
 
 		const tool = createGetBudgetStatusTool(client);
@@ -191,7 +223,7 @@ describe("get_budget_status pacing calculations", () => {
 
 		expect(result.success).toBe(true);
 		/* $750 / 15 days elapsed = $50/day burn rate */
-		expect(result.data!.burnRate).toBe(50);
+		expect(result.data?.burnRate).toBe(50);
 	});
 
 	it("should handle accounts with no active campaigns", async () => {
@@ -217,8 +249,8 @@ describe("get_budget_status pacing calculations", () => {
 		);
 
 		expect(result.success).toBe(true);
-		expect(result.data!.activeCampaignCount).toBe(0);
-		expect(result.data!.totalDailyBudget).toBe(0);
+		expect(result.data?.activeCampaignCount).toBe(0);
+		expect(result.data?.totalDailyBudget).toBe(0);
 	});
 });
 
@@ -252,14 +284,15 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute(
-			{ adAccountId: "act_123456789" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
 
 		expect(result.success).toBe(true);
-		expect(result.data!.alertCount).toBeGreaterThan(0);
-		const alerts = result.data!.alerts as Array<{ campaignId: string; severity: string; message: string }>;
+		expect(result.data?.alertCount).toBeGreaterThan(0);
+		const alerts = result.data?.alerts as Array<{
+			campaignId: string;
+			severity: string;
+			message: string;
+		}>;
 		expect(alerts[0].campaignId).toBe("campaign_1");
 		expect(alerts[0].message).toContain("overpacing");
 	});
@@ -293,14 +326,11 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute(
-			{ adAccountId: "act_123456789" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
 
 		expect(result.success).toBe(true);
-		expect(result.data!.alertCount).toBeGreaterThan(0);
-		const alerts = result.data!.alerts as Array<{ campaignId: string; message: string }>;
+		expect(result.data?.alertCount).toBeGreaterThan(0);
+		const alerts = result.data?.alerts as Array<{ campaignId: string; message: string }>;
 		expect(alerts[0].message).toContain("underpacing");
 	});
 
@@ -335,13 +365,10 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute(
-			{ adAccountId: "act_123456789" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
 
 		expect(result.success).toBe(true);
-		expect(result.data!.alertCount).toBe(0);
+		expect(result.data?.alertCount).toBe(0);
 	});
 
 	it("should classify critical severity for >50% deviation", async () => {
@@ -375,13 +402,10 @@ describe("get_pacing_alerts campaign flagging", () => {
 		});
 
 		const tool = createGetPacingAlertsTool(client);
-		const result = await tool.execute(
-			{ adAccountId: "act_123456789" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ adAccountId: "act_123456789" }, createTestContext());
 
 		expect(result.success).toBe(true);
-		const alerts = result.data!.alerts as Array<{ severity: string }>;
+		const alerts = result.data?.alerts as Array<{ severity: string }>;
 		expect(alerts.length).toBeGreaterThan(0);
 		expect(alerts[0].severity).toBe("critical");
 	});

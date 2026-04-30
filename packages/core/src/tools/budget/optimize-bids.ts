@@ -7,11 +7,11 @@
  * recommendations based on performance data.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
 import type { MetaClient } from "@meta-ads-agent/meta-client";
+import { type Static, Type } from "@sinclair/typebox";
+import type { AgentGoal } from "../../types.js";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
-import type { AgentGoal } from "../../types.js";
 
 /**
  * TypeBox schema for optimize_bids tool parameters.
@@ -21,11 +21,7 @@ const OptimizeBidsParams = Type.Object({
 	campaignId: Type.String({ description: "Meta campaign ID" }),
 	/** Target bid strategy to switch to. */
 	bidStrategy: Type.Union(
-		[
-			Type.Literal("LOWEST_COST"),
-			Type.Literal("COST_CAP"),
-			Type.Literal("BID_CAP"),
-		],
+		[Type.Literal("LOWEST_COST"), Type.Literal("COST_CAP"), Type.Literal("BID_CAP")],
 		{ description: "Target bid strategy" },
 	),
 	/** Optional bid amount for COST_CAP or BID_CAP strategies (in account currency). */
@@ -62,10 +58,7 @@ const BID_STRATEGY_MAP: Record<string, string> = {
  * @param goals - Agent goals containing the CPA cap for bid recommendations.
  * @returns Frozen tool definition ready for registry.
  */
-export function createOptimizeBidsTool(
-	client: MetaClient,
-	goals: AgentGoal,
-) {
+export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
 	return createTool({
 		name: "optimize_bids",
 		description:
@@ -73,10 +66,7 @@ export function createOptimizeBidsTool(
 			"COST_CAP, and BID_CAP strategies. Logs strategy changes with reasoning.",
 		parameters: OptimizeBidsParams,
 
-		async execute(
-			params: OptimizeBidsInput,
-			context: ToolContext,
-		): Promise<ToolResult> {
+		async execute(params: OptimizeBidsInput, context: ToolContext): Promise<ToolResult> {
 			const { campaignId, bidStrategy, bidAmount } = params;
 
 			/* Validate: COST_CAP and BID_CAP require a bid amount */
@@ -87,9 +77,8 @@ export function createOptimizeBidsTool(
 				return {
 					success: false,
 					data: { campaignId, bidStrategy },
-					message:
-						`Bid amount is required for ${bidStrategy} strategy. ` +
-						`Provide a bidAmount in account currency.`,
+					error: `Bid amount is required for ${bidStrategy} strategy. Provide a bidAmount in account currency.`,
+					message: `Bid amount is required for ${bidStrategy} strategy. Provide a bidAmount in account currency.`,
 				};
 			}
 
@@ -102,9 +91,7 @@ export function createOptimizeBidsTool(
 				level: "campaign",
 				date_preset: "last_7d",
 				fields: ["campaign_id", "spend", "actions", "impressions", "clicks"],
-				filtering: [
-					{ field: "campaign.id", operator: "EQUAL", value: campaignId },
-				],
+				filtering: [{ field: "campaign.id", operator: "EQUAL", value: campaignId }],
 			});
 
 			/* Compute current CPA from insights */
@@ -136,10 +123,7 @@ export function createOptimizeBidsTool(
 			if (bidStrategy === "COST_CAP") {
 				const effectiveBidAmount = bidAmount ?? goals.cpaCap;
 				if (currentCpa > goals.cpaCap) {
-					reasoning =
-						`Current CPA ($${currentCpa.toFixed(2)}) exceeds target cap ($${goals.cpaCap.toFixed(2)}). ` +
-						`Switching to COST_CAP with bid amount $${effectiveBidAmount.toFixed(2)} ` +
-						`to constrain costs while maintaining delivery volume.`;
+					reasoning = `Current CPA ($${currentCpa.toFixed(2)}) exceeds target cap ($${goals.cpaCap.toFixed(2)}). Switching to COST_CAP with bid amount $${effectiveBidAmount.toFixed(2)} to constrain costs while maintaining delivery volume.`;
 				} else {
 					reasoning =
 						`Proactively setting COST_CAP at $${effectiveBidAmount.toFixed(2)} ` +
@@ -148,22 +132,12 @@ export function createOptimizeBidsTool(
 				}
 			} else if (bidStrategy === "LOWEST_COST") {
 				if (currentCpa > 0 && currentCpa < goals.cpaCap * 0.7) {
-					reasoning =
-						`Current CPA ($${currentCpa.toFixed(2)}) is well below the cap ` +
-						`($${goals.cpaCap.toFixed(2)} at 70% threshold = $${(goals.cpaCap * 0.7).toFixed(2)}). ` +
-						`Switching to LOWEST_COST to maximize delivery volume while CPA headroom exists.`;
+					reasoning = `Current CPA ($${currentCpa.toFixed(2)}) is well below the cap ($${goals.cpaCap.toFixed(2)} at 70% threshold = $${(goals.cpaCap * 0.7).toFixed(2)}). Switching to LOWEST_COST to maximize delivery volume while CPA headroom exists.`;
 				} else {
-					reasoning =
-						`Switching to LOWEST_COST to let Meta's algorithm optimize for ` +
-						`maximum conversions without a bid cap. ` +
-						`Current CPA: $${currentCpa > 0 ? currentCpa.toFixed(2) : "N/A"}.`;
+					reasoning = `Switching to LOWEST_COST to let Meta's algorithm optimize for maximum conversions without a bid cap. Current CPA: $${currentCpa > 0 ? currentCpa.toFixed(2) : "N/A"}.`;
 				}
 			} else {
-				reasoning =
-					`Switching to BID_CAP at $${(bidAmount ?? 0).toFixed(2)} ` +
-					`for maximum cost control. This may reduce delivery volume ` +
-					`but ensures no individual conversion costs more than the cap. ` +
-					`Current CPA: $${currentCpa > 0 ? currentCpa.toFixed(2) : "N/A"}.`;
+				reasoning = `Switching to BID_CAP at $${(bidAmount ?? 0).toFixed(2)} for maximum cost control. This may reduce delivery volume but ensures no individual conversion costs more than the cap. Current CPA: $${currentCpa > 0 ? currentCpa.toFixed(2) : "N/A"}.`;
 			}
 
 			/* Skip actual API call in dry-run mode */

@@ -25,23 +25,19 @@ const isProduction = process.env.NODE_ENV === "production";
  * Human-readable format for development.
  */
 const devFormat = combine(
-  errors({ stack: true }),
-  timestamp({ format: "HH:mm:ss" }),
-  colorize(),
-  printf(({ level, message, timestamp: ts, stack }) => {
-    const base = `${ts} ${level}: ${message}`;
-    return stack ? `${base}\n${stack}` : base;
-  }),
+	errors({ stack: true }),
+	timestamp({ format: "HH:mm:ss" }),
+	colorize(),
+	printf(({ level, message, timestamp: ts, stack }) => {
+		const base = `${ts} ${level}: ${message}`;
+		return stack ? `${base}\n${stack}` : base;
+	}),
 );
 
 /**
  * Structured JSON format for production.
  */
-const prodFormat = combine(
-  errors({ stack: true }),
-  timestamp(),
-  json(),
-);
+const prodFormat = combine(errors({ stack: true }), timestamp(), json());
 
 /**
  * Shared logger instance used throughout the CLI.
@@ -53,11 +49,11 @@ const prodFormat = combine(
  * ```
  */
 export const logger = winston.createLogger({
-  level: "info",
-  format: isProduction ? prodFormat : devFormat,
-  transports: [
-    new winston.transports.Console({
-      stderrLevels: ["error"],
-    }),
-  ],
+	level: "info",
+	format: isProduction ? prodFormat : devFormat,
+	transports: [
+		new winston.transports.Console({
+			stderrLevels: ["error"],
+		}),
+	],
 });

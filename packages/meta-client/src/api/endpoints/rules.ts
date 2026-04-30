@@ -10,12 +10,7 @@
  * direct API calls.
  */
 
-import type {
-	AdRule,
-	AdRulePreview,
-	CreateRuleParams,
-	UpdateRuleParams,
-} from "../../types.js";
+import type { AdRule, AdRulePreview, CreateRuleParams, UpdateRuleParams } from "../../types.js";
 import type { ApiClient, ApiResponse } from "../client.js";
 
 /**
@@ -48,15 +43,11 @@ export class RulesEndpoints {
 	 * @returns Array of ad rules.
 	 */
 	async list(adAccountId: string): Promise<AdRule[]> {
-		const response = await this.api.get<ApiResponse<AdRule[]>>(
-			`/${adAccountId}/adrules_library`,
-			{
-				params: {
-					fields:
-						"id,name,status,evaluation_spec,execution_spec,schedule_spec,entity_type",
-				},
+		const response = await this.api.get<ApiResponse<AdRule[]>>(`/${adAccountId}/adrules_library`, {
+			params: {
+				fields: "id,name,status,evaluation_spec,execution_spec,schedule_spec,entity_type",
 			},
-		);
+		});
 		return response.data;
 	}
 

@@ -6,9 +6,9 @@
  * reports for archival, email distribution, or dashboard consumption.
  */
 
-import { Type } from "@sinclair/typebox";
 import { writeFile } from "node:fs/promises";
-import { createTool } from "../types.js";
+import { Type } from "@sinclair/typebox";
+import { type ToolResult, createTool } from "../types.js";
 import type { PerformanceReport } from "./types.js";
 
 /**
@@ -24,14 +24,9 @@ const ExportReportParams = Type.Object({
 		description: "Destination file path for the exported report",
 	}),
 	/** Output format. */
-	format: Type.Union(
-		[
-			Type.Literal("json"),
-			Type.Literal("markdown"),
-			Type.Literal("csv"),
-		],
-		{ description: "Export format: 'json', 'markdown', or 'csv'" },
-	),
+	format: Type.Union([Type.Literal("json"), Type.Literal("markdown"), Type.Literal("csv")], {
+		description: "Export format: 'json', 'markdown', or 'csv'",
+	}),
 });
 
 /**
@@ -60,7 +55,7 @@ export const exportReport = createTool({
 		"Writes a PerformanceReport to a local file in the specified format " +
 		"(JSON, Markdown, or CSV). Returns the file path and bytes written.",
 	parameters: ExportReportParams,
-	async execute(params, _context): Promise<{ success: boolean; data: Record<string, unknown> | null; message: string }> {
+	async execute(params, _context): Promise<ToolResult> {
 		try {
 			const report: PerformanceReport = JSON.parse(params.report);
 			let content: string;
@@ -72,7 +67,6 @@ export const exportReport = createTool({
 				case "csv":
 					content = formatReportAsCsv(report);
 					break;
-				case "json":
 				default:
 					content = JSON.stringify(report, null, 2);
 					break;
@@ -94,6 +88,7 @@ export const exportReport = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to export report: ${errMessage}`,
 				message: `Failed to export report: ${errMessage}`,
 			};
 		}
@@ -110,15 +105,15 @@ function formatReportAsMarkdown(report: PerformanceReport): string {
 	const { summary, dateRange, campaignBreakdown, adSetBreakdown } = report;
 
 	const lines: string[] = [
-		`# Performance Report`,
-		``,
+		"# Performance Report",
+		"",
 		`**Period:** ${dateRange.start} to ${dateRange.end}`,
 		`**Generated:** ${report.generatedAt}`,
-		``,
-		`## Summary`,
-		``,
-		`| Metric | Value |`,
-		`|--------|-------|`,
+		"",
+		"## Summary",
+		"",
+		"| Metric | Value |",
+		"|--------|-------|",
 		`| Total Spend | $${summary.totalSpend.toFixed(2)} |`,
 		`| Total Impressions | ${summary.totalImpressions.toLocaleString()} |`,
 		`| Total Clicks | ${summary.totalClicks.toLocaleString()} |`,
@@ -127,37 +122,37 @@ function formatReportAsMarkdown(report: PerformanceReport): string {
 		`| Total Conversions | ${summary.totalConversions.toLocaleString()} |`,
 		`| Avg ROAS | ${summary.avgROAS.toFixed(2)}x |`,
 		`| Avg CPA | $${summary.avgCPA.toFixed(2)} |`,
-		``,
+		"",
 	];
 
 	if (campaignBreakdown.length > 0) {
 		lines.push(
-			`## Top Campaigns (by Spend)`,
-			``,
-			`| Campaign | Spend | Impressions | Clicks | CTR | CPC | Conversions | ROAS | CPA |`,
-			`|----------|-------|-------------|--------|-----|-----|-------------|------|-----|`,
+			"## Top Campaigns (by Spend)",
+			"",
+			"| Campaign | Spend | Impressions | Clicks | CTR | CPC | Conversions | ROAS | CPA |",
+			"|----------|-------|-------------|--------|-----|-----|-------------|------|-----|",
 		);
 		for (const c of campaignBreakdown) {
 			lines.push(
 				`| ${c.campaignName} | $${c.spend.toFixed(2)} | ${c.impressions.toLocaleString()} | ${c.clicks.toLocaleString()} | ${(c.ctr * 100).toFixed(2)}% | $${c.cpc.toFixed(2)} | ${c.conversions} | ${c.roas.toFixed(2)}x | $${c.cpa.toFixed(2)} |`,
 			);
 		}
-		lines.push(``);
+		lines.push("");
 	}
 
 	if (adSetBreakdown.length > 0) {
 		lines.push(
-			`## Top Ad Sets (by Spend)`,
-			``,
-			`| Ad Set | Spend | Impressions | Clicks | CTR | CPC | Conversions | ROAS | CPA |`,
-			`|--------|-------|-------------|--------|-----|-----|-------------|------|-----|`,
+			"## Top Ad Sets (by Spend)",
+			"",
+			"| Ad Set | Spend | Impressions | Clicks | CTR | CPC | Conversions | ROAS | CPA |",
+			"|--------|-------|-------------|--------|-----|-----|-------------|------|-----|",
 		);
 		for (const a of adSetBreakdown) {
 			lines.push(
 				`| ${a.adSetName} | $${a.spend.toFixed(2)} | ${a.impressions.toLocaleString()} | ${a.clicks.toLocaleString()} | ${(a.ctr * 100).toFixed(2)}% | $${a.cpc.toFixed(2)} | ${a.conversions} | ${a.roas.toFixed(2)}x | $${a.cpa.toFixed(2)} |`,
 			);
 		}
-		lines.push(``);
+		lines.push("");
 	}
 
 	return lines.join("\n");
@@ -180,7 +175,7 @@ function formatReportAsCsv(report: PerformanceReport): string {
 			`"${c.campaignName}",${c.spend.toFixed(2)},${c.impressions},${c.clicks},${c.ctr.toFixed(6)},${c.cpc.toFixed(2)},${c.cpm.toFixed(2)},${c.conversions},${c.roas.toFixed(2)},${c.cpa.toFixed(2)}`,
 		);
 	}
-	lines.push(``);
+	lines.push("");
 
 	lines.push("Ad Set Breakdown");
 	lines.push("Ad Set,Campaign ID,Spend,Impressions,Clicks,CTR,CPC,CPM,Conversions,ROAS,CPA");

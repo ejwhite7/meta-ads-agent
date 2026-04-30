@@ -7,9 +7,9 @@
  * requiring the actual meta-ads CLI binary.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter, Readable } from "node:stream";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLIWrapper } from "../cli/wrapper.js";
 import { AuthError, CliError, NotFoundError } from "../errors.js";
 import { CliExitCode } from "../types.js";
@@ -27,11 +27,7 @@ const mockSpawn = vi.mocked(spawn);
  * Creates a mock child process that emits the specified stdout, stderr,
  * and exit code.
  */
-function createMockProcess(
-	stdout: string,
-	stderr: string,
-	exitCode: number,
-): ChildProcess {
+function createMockProcess(stdout: string, stderr: string, exitCode: number): ChildProcess {
 	const proc = new EventEmitter() as ChildProcess;
 	const stdoutStream = new Readable({ read() {} });
 	const stderrStream = new Readable({ read() {} });
@@ -68,9 +64,7 @@ describe("CLIWrapper", () => {
 	describe("run()", () => {
 		it("parses valid JSON output from the CLI", async () => {
 			const mockData = [{ id: "123", name: "Test Campaign" }];
-			mockSpawn.mockReturnValue(
-				createMockProcess(JSON.stringify(mockData), "", 0),
-			);
+			mockSpawn.mockReturnValue(createMockProcess(JSON.stringify(mockData), "", 0));
 
 			const result = await wrapper.run<typeof mockData>("campaigns", "list", {
 				"account-id": "act_123",
@@ -170,56 +164,38 @@ describe("CLIWrapper", () => {
 
 	describe("exit code mapping", () => {
 		it("throws AuthError for exit code 3", async () => {
-			mockSpawn.mockReturnValue(
-				createMockProcess("", "Invalid access token", CliExitCode.Auth),
-			);
+			mockSpawn.mockReturnValue(createMockProcess("", "Invalid access token", CliExitCode.Auth));
 
-			await expect(
-				wrapper.run("campaigns", "list", {}),
-			).rejects.toThrow(AuthError);
+			await expect(wrapper.run("campaigns", "list", {})).rejects.toThrow(AuthError);
 		});
 
 		it("throws NotFoundError for exit code 5", async () => {
-			mockSpawn.mockReturnValue(
-				createMockProcess("", "Campaign not found", CliExitCode.NotFound),
-			);
+			mockSpawn.mockReturnValue(createMockProcess("", "Campaign not found", CliExitCode.NotFound));
 
-			await expect(
-				wrapper.run("campaigns", "show", { id: "nonexistent" }),
-			).rejects.toThrow(NotFoundError);
+			await expect(wrapper.run("campaigns", "show", { id: "nonexistent" })).rejects.toThrow(
+				NotFoundError,
+			);
 		});
 
 		it("throws CliError with Usage exit code for exit code 2", async () => {
-			mockSpawn.mockReturnValue(
-				createMockProcess("", "Missing required arg", CliExitCode.Usage),
-			);
+			mockSpawn.mockReturnValue(createMockProcess("", "Missing required arg", CliExitCode.Usage));
 
-			await expect(wrapper.run("campaigns", "create", {})).rejects.toThrow(
-				CliError,
-			);
+			await expect(wrapper.run("campaigns", "create", {})).rejects.toThrow(CliError);
 		});
 
 		it("throws CliError with ApiError exit code for exit code 4", async () => {
-			mockSpawn.mockReturnValue(
-				createMockProcess("", "Rate limit exceeded", CliExitCode.ApiError),
-			);
+			mockSpawn.mockReturnValue(createMockProcess("", "Rate limit exceeded", CliExitCode.ApiError));
 
-			const error = await wrapper
-				.run("campaigns", "list", {})
-				.catch((e: CliError) => e);
+			const error = await wrapper.run("campaigns", "list", {}).catch((e: CliError) => e);
 
 			expect(error).toBeInstanceOf(CliError);
 			expect(error.exitCode).toBe(CliExitCode.ApiError);
 		});
 
 		it("throws CliError for general exit code 1", async () => {
-			mockSpawn.mockReturnValue(
-				createMockProcess("", "Something went wrong", CliExitCode.General),
-			);
+			mockSpawn.mockReturnValue(createMockProcess("", "Something went wrong", CliExitCode.General));
 
-			const error = await wrapper
-				.run("campaigns", "list", {})
-				.catch((e: CliError) => e);
+			const error = await wrapper.run("campaigns", "list", {}).catch((e: CliError) => e);
 
 			expect(error).toBeInstanceOf(CliError);
 		});
@@ -229,9 +205,7 @@ describe("CLIWrapper", () => {
 				createMockProcess("", "Detailed error info here", CliExitCode.General),
 			);
 
-			const error = await wrapper
-				.run("campaigns", "list", {})
-				.catch((e: CliError) => e);
+			const error = await wrapper.run("campaigns", "list", {}).catch((e: CliError) => e);
 
 			expect(error.message).toContain("Detailed error info here");
 		});
@@ -245,9 +219,7 @@ describe("CLIWrapper", () => {
 		});
 
 		it("resolves when CLI returns usage error (exit code 2)", async () => {
-			mockSpawn.mockReturnValue(
-				createMockProcess("", "Invalid command", CliExitCode.Usage),
-			);
+			mockSpawn.mockReturnValue(createMockProcess("", "Invalid command", CliExitCode.Usage));
 
 			await expect(wrapper.checkInstalled()).resolves.toBeUndefined();
 		});
@@ -271,9 +243,7 @@ describe("CLIWrapper", () => {
 	describe("whoami()", () => {
 		it("returns parsed auth info on success", async () => {
 			const authInfo = { name: "Test User", id: "12345" };
-			mockSpawn.mockReturnValue(
-				createMockProcess(JSON.stringify(authInfo), "", 0),
-			);
+			mockSpawn.mockReturnValue(createMockProcess(JSON.stringify(authInfo), "", 0));
 
 			const result = await wrapper.whoami();
 
@@ -281,9 +251,7 @@ describe("CLIWrapper", () => {
 		});
 
 		it("throws AuthError when token is invalid", async () => {
-			mockSpawn.mockReturnValue(
-				createMockProcess("", "Invalid token", CliExitCode.Auth),
-			);
+			mockSpawn.mockReturnValue(createMockProcess("", "Invalid token", CliExitCode.Auth));
 
 			await expect(wrapper.whoami()).rejects.toThrow(AuthError);
 		});

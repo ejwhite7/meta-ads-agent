@@ -14,11 +14,11 @@
  * 5. Create new creatives via the Meta API (paused)
  */
 
-import { Type, type Static } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolResult } from "../types.js";
-import type { CreativeToolContext } from "./types.js";
 import { buildAnalysis } from "./analyze-creative-performance.js";
+import type { CreativeToolContext } from "./types.js";
 
 /**
  * TypeBox schema for clone-top-creative parameters.
@@ -48,12 +48,7 @@ type CloneTopCreativeInput = Static<typeof CloneTopCreativeParams>;
  * @param count - Number of variations to generate.
  * @returns Formatted prompt string.
  */
-function buildVariationPrompt(
-	headline: string,
-	body: string,
-	cta: string,
-	count: number,
-): string {
+function buildVariationPrompt(headline: string, body: string, cta: string, count: number): string {
 	return [
 		`Create ${count} variation${count === 1 ? "" : "s"} of the following high-performing ad copy.`,
 		"Keep the same general message and CTA but vary the wording, angle, and emphasis.",
@@ -83,7 +78,9 @@ function buildVariationPrompt(
  * @returns Parsed array of variation objects.
  * @throws {Error} If the response cannot be parsed.
  */
-function parseCloneVariations(text: string): Array<{ headline: string; body: string; callToAction: string }> {
+function parseCloneVariations(
+	text: string,
+): Array<{ headline: string; body: string; callToAction: string }> {
 	let jsonText = text.trim();
 
 	const fenceMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -146,15 +143,14 @@ export const cloneTopCreativeTool = createTool({
 				level: "ad",
 				date_preset: "last_14d",
 				fields: ["ad_id", "ad_name", "impressions", "clicks", "spend", "ctr", "cpm", "actions"],
-				filtering: [
-					{ field: "campaign.id", operator: "EQUAL", value: params.campaignId },
-				],
+				filtering: [{ field: "campaign.id", operator: "EQUAL", value: params.campaignId }],
 			});
 
 			if (insights.length === 0) {
 				return {
 					success: false,
 					data: null,
+					error: `No active ads with insights found in campaign ${params.campaignId}.`,
 					message: `No active ads with insights found in campaign ${params.campaignId}.`,
 				};
 			}
@@ -165,6 +161,7 @@ export const cloneTopCreativeTool = createTool({
 				return {
 					success: false,
 					data: null,
+					error: "No analyzable creatives found in campaign insights.",
 					message: "No analyzable creatives found in campaign insights.",
 				};
 			}
@@ -181,6 +178,7 @@ export const cloneTopCreativeTool = createTool({
 				return {
 					success: false,
 					data: null,
+					error: `Could not find ad ${topAnalysis.creativeId} to read its creative.`,
 					message: `Could not find ad ${topAnalysis.creativeId} to read its creative.`,
 				};
 			}
@@ -236,6 +234,7 @@ export const cloneTopCreativeTool = createTool({
 			return {
 				success: false,
 				data: null,
+				error: `Failed to clone top creative: ${message}`,
 				message: `Failed to clone top creative: ${message}`,
 			};
 		}

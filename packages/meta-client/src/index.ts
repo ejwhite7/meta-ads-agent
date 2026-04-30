@@ -61,17 +61,14 @@ export type {
 	ProductSet,
 	ProductItem,
 	Dataset,
-
 	// Configuration
 	MetaClientConfig,
-
 	// Entity status types
 	EntityStatus,
 	CampaignObjective,
 	OptimizationGoal,
 	BidStrategy,
 	AdPreviewFormat,
-
 	// Create/Update parameter types
 	CreateCampaignParams,
 	UpdateCampaignParams,
