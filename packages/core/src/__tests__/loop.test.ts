@@ -118,7 +118,7 @@ describe("runAgentLoop", () => {
 			toolRegistry: registry,
 			llmProvider: mockLLM,
 			maxProposals: 5,
-			});
+		});
 
 		expect(result.proposals).toHaveLength(1);
 		expect(result.proposals[0]?.toolName).toBe("update_budget");
@@ -138,7 +138,7 @@ describe("runAgentLoop", () => {
 			toolRegistry: registry,
 			llmProvider: mockLLM,
 			maxProposals: 5,
-			});
+		});
 
 		expect(result.proposals).toHaveLength(0);
 		expect(result.reasoning).toContain("No optimization");
@@ -154,7 +154,7 @@ describe("runAgentLoop", () => {
 			toolRegistry: registry,
 			llmProvider: mockLLM,
 			maxProposals: 5,
-			});
+		});
 
 		expect(result.proposals).toHaveLength(0);
 		expect(result.metricsSummary.campaignCount).toBe(0);
@@ -217,7 +217,7 @@ describe("runAgentLoop", () => {
 			toolRegistry: registry,
 			llmProvider: mockLLM,
 			maxProposals: 2,
-			});
+		});
 
 		expect(result.proposals).toHaveLength(2);
 	});
@@ -232,7 +232,7 @@ describe("runAgentLoop", () => {
 			toolRegistry: registry,
 			llmProvider: mockLLM,
 			maxProposals: 5,
-			});
+		});
 
 		expect(result.metricsSummary.campaignCount).toBe(2);
 		expect(result.metricsSummary.totalSpend).toBe(300);

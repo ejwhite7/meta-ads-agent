@@ -93,10 +93,7 @@ describe("listCampaignsTool", () => {
 	it("lists all campaigns when status is ALL", async () => {
 		const ctx = createMockContext({ campaigns: sampleCampaigns });
 
-		const result = await listCampaignsTool.execute(
-			{ status: "ALL" },
-			ctx,
-		);
+		const result = await listCampaignsTool.execute({ status: "ALL" }, ctx);
 
 		expect(result.success).toBe(true);
 		expect(result.data).toBeDefined();
@@ -111,10 +108,7 @@ describe("listCampaignsTool", () => {
 	it("passes status filter to MetaClient when not ALL", async () => {
 		const ctx = createMockContext({ campaigns: [sampleCampaigns[0]] });
 
-		const result = await listCampaignsTool.execute(
-			{ status: "ACTIVE" },
-			ctx,
-		);
+		const result = await listCampaignsTool.execute({ status: "ACTIVE" }, ctx);
 
 		expect(result.success).toBe(true);
 		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456", {
@@ -145,10 +139,7 @@ describe("listCampaignsTool", () => {
 	it("returns an empty list gracefully", async () => {
 		const ctx = createMockContext({ campaigns: [] });
 
-		const result = await listCampaignsTool.execute(
-			{ status: "ACTIVE" },
-			ctx,
-		);
+		const result = await listCampaignsTool.execute({ status: "ACTIVE" }, ctx);
 
 		expect(result.success).toBe(true);
 		const data = result.data as { count: number };
@@ -160,10 +151,7 @@ describe("listCampaignsTool", () => {
 			listError: new Error("Rate limit exceeded"),
 		});
 
-		const result = await listCampaignsTool.execute(
-			{ status: "ALL" },
-			ctx,
-		);
+		const result = await listCampaignsTool.execute({ status: "ALL" }, ctx);
 
 		expect(result.success).toBe(false);
 		expect(result.error).toContain("Rate limit exceeded");

@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { budgetTools } from "../../tools/budget/index.js";
 import {
 	allTools,
 	campaignTools,
@@ -19,7 +20,6 @@ import {
 	reportingTools,
 	staticTools,
 } from "../../tools/index.js";
-import { budgetTools } from "../../tools/budget/index.js";
 import { ToolRegistry } from "../../tools/registry.js";
 
 /* ------------------------------------------------------------------ */

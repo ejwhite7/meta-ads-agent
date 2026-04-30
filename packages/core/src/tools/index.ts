@@ -63,11 +63,11 @@ export { ToolRegistry } from "./registry.js";
 export { ToolExecutor } from "./executor.js";
 export { HookManager } from "./hooks.js";
 
+import { budgetTools } from "./budget/index.js";
 /* ---- Convenience imports for allTools builder ---- */
 import { campaignTools } from "./campaign/index.js";
 import { creativeTools } from "./creative/index.js";
 import { reportingTools } from "./reporting/index.js";
-import { budgetTools } from "./budget/index.js";
 
 /**
  * Static tools that do not require runtime configuration.

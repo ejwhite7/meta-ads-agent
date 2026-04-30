@@ -101,10 +101,7 @@ describe("get_budget_status pacing calculations", () => {
 		});
 
 		const tool = createGetBudgetStatusTool(client);
-		const result = await tool.execute(
-			{ datePreset: "this_month" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ datePreset: "this_month" }, createTestContext());
 
 		expect(result.success).toBe(true);
 		expect(result.data).not.toBeNull();
@@ -140,10 +137,7 @@ describe("get_budget_status pacing calculations", () => {
 		});
 
 		const tool = createGetBudgetStatusTool(client);
-		const result = await tool.execute(
-			{ datePreset: "this_month" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ datePreset: "this_month" }, createTestContext());
 
 		expect(result.success).toBe(true);
 		expect(result.data?.pacing).toBe("overpacing");
@@ -179,10 +173,7 @@ describe("get_budget_status pacing calculations", () => {
 		});
 
 		const tool = createGetBudgetStatusTool(client);
-		const result = await tool.execute(
-			{ datePreset: "this_month" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ datePreset: "this_month" }, createTestContext());
 
 		expect(result.success).toBe(true);
 		expect(result.data?.pacing).toBe("underpacing");
@@ -216,10 +207,7 @@ describe("get_budget_status pacing calculations", () => {
 		});
 
 		const tool = createGetBudgetStatusTool(client);
-		const result = await tool.execute(
-			{ datePreset: "this_month" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ datePreset: "this_month" }, createTestContext());
 
 		expect(result.success).toBe(true);
 		/* $750 / 15 days elapsed = $50/day burn rate */
@@ -243,10 +231,7 @@ describe("get_budget_status pacing calculations", () => {
 		});
 
 		const tool = createGetBudgetStatusTool(client);
-		const result = await tool.execute(
-			{ datePreset: "this_month" },
-			createTestContext(),
-		);
+		const result = await tool.execute({ datePreset: "this_month" }, createTestContext());
 
 		expect(result.success).toBe(true);
 		expect(result.data?.activeCampaignCount).toBe(0);

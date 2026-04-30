@@ -46,8 +46,7 @@ const db = dbConnection.db;
  * @returns The result from the daemon, or null if the daemon is unreachable.
  */
 async function sendIpc(method: string, params: unknown = {}): Promise<unknown> {
-	const ipcPath =
-		process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
+	const ipcPath = process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
 	const { connect } = await import("node:net");
 	const { randomUUID } = await import("node:crypto");
 	const requestId = randomUUID();
@@ -61,9 +60,7 @@ async function sendIpc(method: string, params: unknown = {}): Promise<unknown> {
 		}, 5000);
 
 		socket.on("connect", () => {
-			socket.write(
-				`${JSON.stringify({ id: requestId, method, params })}\n`,
-			);
+			socket.write(`${JSON.stringify({ id: requestId, method, params })}\n`);
 		});
 		socket.on("data", (chunk: Buffer) => {
 			buf += chunk.toString();

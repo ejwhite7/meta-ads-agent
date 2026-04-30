@@ -121,8 +121,8 @@ export const duplicateCampaignTool = createTool({
 					status: "PAUSED",
 					reason,
 				},
-							message: "Campaign duplicated successfully.",
-};
+				message: "Campaign duplicated successfully.",
+			};
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Unknown error duplicating campaign";
 

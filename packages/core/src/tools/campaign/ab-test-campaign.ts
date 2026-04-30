@@ -100,7 +100,13 @@ export const abTestCampaignTool = createTool({
 			 * ----------------------------------------------------------------*/
 			await context.auditLogger.record({
 				toolName: "ab_test_campaign",
-				toolParams: { adAccountId: context.adAccountId, name: trimmedName, testVariable, duration, budget },
+				toolParams: {
+					adAccountId: context.adAccountId,
+					name: trimmedName,
+					testVariable,
+					duration,
+					budget,
+				},
 				outcome:
 					`Created A/B split test '${trimmedName}' (ID: ${splitTest.id}). ` +
 					`Variable: ${testVariable}, duration: ${duration} days, ` +

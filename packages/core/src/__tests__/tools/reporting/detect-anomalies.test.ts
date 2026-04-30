@@ -96,10 +96,7 @@ describe("detectAnomalies", () => {
 			baselineInsights: [createBaselineInsight()],
 		});
 
-		const result = await detectAnomalies.execute(
-			{ sensitivityLevel: "medium" },
-			ctx,
-		);
+		const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 		expect(result.success).toBe(true);
 		expect((result.data as Record<string, unknown>).anomalyCount).toBe(0);
@@ -110,10 +107,7 @@ describe("detectAnomalies", () => {
 			campaigns: [{ ...activeCampaign, status: "PAUSED" }],
 		});
 
-		const result = await detectAnomalies.execute(
-			{ sensitivityLevel: "medium" },
-			ctx,
-		);
+		const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 		expect(result.success).toBe(true);
 		expect((result.data as Record<string, unknown>).anomalyCount).toBeUndefined();
@@ -129,10 +123,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -150,10 +141,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "high" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "high" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -171,10 +159,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -194,10 +179,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -215,10 +197,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -238,10 +217,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -273,10 +249,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			vi.stubGlobal("Date", originalDate);
 
@@ -304,10 +277,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -330,10 +300,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const result = await detectAnomalies.execute(
-				{ sensitivityLevel: "medium" },
-				ctx,
-			);
+			const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 			expect(result.success).toBe(true);
 			const anomalies = (result.data as Record<string, unknown>).anomalies as Array<{
@@ -354,10 +321,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const highResult = await detectAnomalies.execute(
-				{ sensitivityLevel: "high" },
-				ctx1,
-			);
+			const highResult = await detectAnomalies.execute({ sensitivityLevel: "high" }, ctx1);
 
 			const ctx2 = createMockContext({
 				campaigns: [activeCampaign],
@@ -365,10 +329,7 @@ describe("detectAnomalies", () => {
 				baselineInsights: [createBaselineInsight()],
 			});
 
-			const lowResult = await detectAnomalies.execute(
-				{ sensitivityLevel: "low" },
-				ctx2,
-			);
+			const lowResult = await detectAnomalies.execute({ sensitivityLevel: "low" }, ctx2);
 
 			const highAnomalies = (highResult.data as Record<string, unknown>)
 				.anomalies as Array<unknown>;
@@ -393,10 +354,7 @@ describe("detectAnomalies", () => {
 			},
 		};
 
-		const result = await detectAnomalies.execute(
-			{ sensitivityLevel: "medium" },
-			ctx,
-		);
+		const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 		expect(result.success).toBe(false);
 		expect(result.message).toContain("API rate limit exceeded");
@@ -409,10 +367,7 @@ describe("detectAnomalies", () => {
 			timestamp: new Date().toISOString(),
 		};
 
-		const result = await detectAnomalies.execute(
-			{ sensitivityLevel: "medium" },
-			ctx,
-		);
+		const result = await detectAnomalies.execute({ sensitivityLevel: "medium" }, ctx);
 
 		expect(result.success).toBe(false);
 		expect(result.message).toContain("MetaClient is not available");

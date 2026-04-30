@@ -233,9 +233,7 @@ export function registerInitCommand(program: Command): void {
 				metaAccessToken,
 				metaAdAccountId,
 				llmProvider,
-				...(llmProvider === "claude"
-					? { anthropicApiKey: apiKey }
-					: { openaiApiKey: apiKey }),
+				...(llmProvider === "claude" ? { anthropicApiKey: apiKey } : { openaiApiKey: apiKey }),
 				agent: {
 					targetRoas: goals.targetRoas,
 					cpaCap: goals.cpaCap,

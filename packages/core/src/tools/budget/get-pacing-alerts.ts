@@ -38,8 +38,7 @@ export interface PacingAlert {
 /**
  * TypeBox schema for get_pacing_alerts tool parameters.
  */
-const GetPacingAlertsParams = Type.Object({
-});
+const GetPacingAlertsParams = Type.Object({});
 
 /** Inferred TypeScript type from the parameter schema. */
 type GetPacingAlertsInput = Static<typeof GetPacingAlertsParams>;
