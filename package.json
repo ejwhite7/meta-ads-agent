@@ -2,12 +2,13 @@
   "name": "meta-ads-agent-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Open source autonomous agent for Meta Ads — full lifecycle campaign management, creative generation, and budget optimization",
+  "description": "Open source autonomous agent for Meta Ads \u2014 full lifecycle campaign management, creative generation, and budget optimization",
   "packageManager": "pnpm@9.0.0",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
+    "cli": "pnpm --filter meta-ads-agent run cli --",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "biome check .",
@@ -18,6 +19,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",
+    "tsx": "^4.0.0",
     "turbo": "^2.3.0",
     "typescript": "^5.6.0"
   }

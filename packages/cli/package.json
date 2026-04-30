@@ -3,17 +3,31 @@
 	"version": "0.1.0",
 	"type": "module",
 	"description": "Open source autonomous agent for Meta Ads \u2014 full lifecycle campaign management, creative generation, and budget optimization",
-	"keywords": ["meta", "facebook", "ads", "agent", "ai", "autonomous", "marketing", "advertising"],
+	"keywords": [
+		"meta",
+		"facebook",
+		"ads",
+		"agent",
+		"ai",
+		"autonomous",
+		"marketing",
+		"advertising"
+	],
 	"license": "MIT",
 	"bin": {
-		"meta-ads-agent": "./dist/index.js"
+		"meta-ads-agent": "./dist/index.js",
+		"maa": "./dist/index.js"
 	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
-	"files": ["dist"],
+	"files": [
+		"dist"
+	],
 	"scripts": {
 		"build": "tsc --build",
 		"dev": "tsc --build --watch",
+		"cli": "tsx src/index.ts",
+		"cli:prod": "node dist/index.js",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run --passWithNoTests",
 		"start": "node dist/index.js",
