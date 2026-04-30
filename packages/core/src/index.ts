@@ -4,7 +4,7 @@
  *
  * Re-exports all public types, classes, interfaces, and functions from
  * the core modules: agent loop, tool system, LLM adapters, decision engine,
- * database, audit logging, and configuration.
+ * database, audit logging, configuration, and all tool domains.
  *
  * This is the single entry point for all consumers of the core package.
  */
@@ -32,6 +32,15 @@ export { ToolExecutor } from './tools/executor.js';
 export type { ExecutorConfig } from './tools/executor.js';
 export { HookManager } from './tools/hooks.js';
 export type { BeforeHook, AfterHook } from './tools/hooks.js';
+
+/* === Tool Domains === */
+export {
+  allTools,
+  campaignTools,
+  budgetTools,
+  creativeTools,
+  reportingTools,
+} from './tools/index.js';
 
 /* === LLM Adapters === */
 export {

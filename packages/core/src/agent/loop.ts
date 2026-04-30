@@ -1,22 +1,41 @@
 /**
  * @module agent/loop
- * Core OODA agent loop — stateless pure function.
+ * Core OODA agent loop -- stateless pure function.
  *
  * Given current metrics, goals, available tools, and an LLM provider,
  * produces a ranked list of action proposals. All state management
- * happens in AgentSession (session.ts) — this function has NO side effects.
+ * happens in AgentSession (session.ts) -- this function has NO side effects.
  *
  * OODA cycle:
- * 1. Observe — receive campaign metrics
- * 2. Orient — analyze performance vs. goals
- * 3. Decide — ask LLM to propose optimization actions
- * 4. Act — return ranked proposals for the executor
+ * 1. Observe -- receive campaign metrics
+ * 2. Orient -- analyze performance vs. goals
+ * 3. Decide -- ask LLM to propose optimization actions
+ * 4. Act -- return ranked proposals for the executor
  */
 
 import type { CampaignMetrics, AgentGoal } from '../types.js';
 import type { AgentLoopContext, AgentLoopResult, MetricsSummary } from './types.js';
 import type { ToolDefinition } from '../llm/types.js';
 import { proposeActions } from '../decisions/engine.js';
+import { ToolRegistry } from '../tools/registry.js';
+import { allTools } from '../tools/index.js';
+
+/**
+ * Creates a pre-populated ToolRegistry with all built-in agent tools.
+ *
+ * Registers every tool from the campaign, budget, creative, and reporting
+ * domains. Use this when initializing an agent session to ensure the full
+ * tool suite is available.
+ *
+ * @returns A ToolRegistry instance with all tools registered
+ */
+export function createDefaultToolRegistry(): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const tool of allTools) {
+    registry.register(tool);
+  }
+  return registry;
+}
 
 /**
  * Computes aggregate metrics summary from an array of campaign metrics.
@@ -95,7 +114,7 @@ function buildSystemPrompt(goals: AgentGoal, adAccountId: string): string {
     '- riskLevel: "low", "medium", or "high"',
     '',
     'Return your proposals as a JSON array.',
-    'Be conservative with budget changes — prefer small incremental adjustments.',
+    'Be conservative with budget changes -- prefer small incremental adjustments.',
     'Never propose actions that violate the daily budget limit.',
   ].join('\n');
 }
@@ -135,7 +154,7 @@ function buildUserPrompt(metrics: CampaignMetrics[], summary: MetricsSummary): s
 }
 
 /**
- * Core OODA agent loop — stateless pure function.
+ * Core OODA agent loop -- stateless pure function.
  *
  * Executes one complete OODA cycle:
  * 1. **Observe**: Receives campaign metrics from the context
@@ -143,7 +162,7 @@ function buildUserPrompt(metrics: CampaignMetrics[], summary: MetricsSummary): s
  * 3. **Decide**: Streams LLM reasoning to generate action proposals
  * 4. **Act**: Scores, filters, and ranks proposals via the decision engine
  *
- * This function is intentionally stateless — it takes all inputs via the
+ * This function is intentionally stateless -- it takes all inputs via the
  * context parameter and returns all outputs via the result. No database
  * writes, no file I/O, no side effects. State management is handled
  * by AgentSession (session.ts).
