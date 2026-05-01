@@ -57,21 +57,53 @@ interface AgentConfig {
 }
 
 /**
- * Run a shell command with the supplied environment and return its trimmed
- * stdout, or null on failure. The Meta access token is injected via env so
- * that the CLI uses the token the user just entered, not whatever cached
- * session may already exist on disk.
+ * Result of running a shell command. Captures stdout, stderr, and the
+ * exit code so callers can surface real diagnostics instead of swallowing
+ * the failure mode.
  */
-function tryExec(cmd: string, env: NodeJS.ProcessEnv = process.env): string | null {
+interface ExecResult {
+	readonly ok: boolean;
+	readonly stdout: string;
+	readonly stderr: string;
+	readonly exitCode: number;
+}
+
+/**
+ * Run a shell command with the supplied environment and return both stdout
+ * and stderr. The Meta access token is injected via env so that the CLI
+ * uses the token the user just entered, not whatever cached session may
+ * already exist on disk.
+ */
+function execCapture(cmd: string, env: NodeJS.ProcessEnv = process.env): ExecResult {
 	try {
-		return execSync(cmd, {
+		const stdout = execSync(cmd, {
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 			env,
 		}).trim();
-	} catch {
-		return null;
+		return { ok: true, stdout, stderr: "", exitCode: 0 };
+	} catch (err: unknown) {
+		/* execSync throws on non-zero exit. The thrown object exposes stdout,
+		 * stderr, and status when stdio is piped, so we can surface them. */
+		const e = err as {
+			stdout?: Buffer | string;
+			stderr?: Buffer | string;
+			status?: number;
+			message?: string;
+		};
+		const stdout = (e.stdout?.toString() ?? "").trim();
+		const stderr = (e.stderr?.toString() ?? e.message ?? "").trim();
+		return { ok: false, stdout, stderr, exitCode: e.status ?? 1 };
 	}
+}
+
+/**
+ * Backwards-compatible wrapper returning trimmed stdout or null on failure.
+ * Prefer `execCapture` when callers need to surface stderr to the user.
+ */
+function tryExec(cmd: string, env: NodeJS.ProcessEnv = process.env): string | null {
+	const r = execCapture(cmd, env);
+	return r.ok ? r.stdout : null;
 }
 
 /**
@@ -103,13 +135,54 @@ function listAdAccounts(token: string): string[] {
 }
 
 /**
- * Validate the Meta access token by running `meta ads auth status` with
- * the just-collected token in the environment.
+ * Result of validating a Meta access token. On failure, `diagnostic`
+ * contains the underlying CLI error message so the wizard can surface it
+ * to the user instead of "Could not validate the Meta access token".
  */
-function validateToken(token: string): boolean {
+interface TokenValidation {
+	readonly valid: boolean;
+	/** Trimmed stderr (preferred) or stdout from the underlying CLI. */
+	readonly diagnostic: string;
+}
+
+/**
+ * Validate the Meta access token by running `meta ads auth status` with
+ * the just-collected token in the environment. Returns a structured
+ * result so callers can render the real CLI error.
+ *
+ * Notes on detection:
+ *   - Exit code 0 + parseable JSON -> valid
+ *   - Exit code 0 but body contains "error" key -> sometimes the CLI
+ *     prints the auth payload alongside an unrelated 'errors: 0' field;
+ *     we now require the JSON to expose an explicit 'id' or 'name' field
+ *     before declaring success.
+ */
+function validateToken(token: string): TokenValidation {
 	const env = { ...process.env, META_ACCESS_TOKEN: token };
-	const result = tryExec("meta ads auth status --output json --no-input", env);
-	return result !== null && !result.toLowerCase().includes("error");
+	const r = execCapture("meta ads auth status --output json --no-input", env);
+
+	if (!r.ok) {
+		const diag = r.stderr || r.stdout || `Exit code ${r.exitCode}`;
+		return { valid: false, diagnostic: diag };
+	}
+
+	/* Parse the JSON body and look for a positive identity signal. */
+	try {
+		const body = JSON.parse(r.stdout);
+		if (body && typeof body === "object" && (body.id || body.name)) {
+			return { valid: true, diagnostic: "" };
+		}
+		return {
+			valid: false,
+			diagnostic: `CLI returned 0 but no identity (id/name) was found in the response. Body: ${r.stdout.slice(0, 400)}`,
+		};
+	} catch {
+		/* Non-JSON success body is unusual but not necessarily a failure. */
+		if (r.stdout && !r.stdout.toLowerCase().includes("error")) {
+			return { valid: true, diagnostic: "" };
+		}
+		return { valid: false, diagnostic: r.stdout };
+	}
 }
 
 /**
@@ -288,11 +361,37 @@ export function registerInitCommand(program: Command): void {
 
 			// Step 7: Validate token
 			logger.info("Validating Meta access token...");
-			const tokenValid = validateToken(metaAccessToken);
-			if (tokenValid) {
+			const validation = validateToken(metaAccessToken);
+			if (validation.valid) {
 				success("Meta access token is valid.");
 			} else {
-				error("Could not validate the Meta access token. Please check your token and try again.");
+				error("Could not validate the Meta access token.");
+				console.error("");
+				console.error("  Underlying error from `meta ads auth status`:");
+				for (const line of validation.diagnostic.split("\n").slice(0, 12)) {
+					console.error(`    ${line}`);
+				}
+				console.error("");
+				console.error("  Common causes:");
+				console.error("    • System user is not assigned to a Business in Business Settings.");
+				console.error("    • Token is missing one of the required scopes: business_management,");
+				console.error("      ads_management, ads_read, pages_show_list, pages_read_engagement,");
+				console.error(
+					"      pages_manage_ads, read_insights. (Meta hides some behind 'Show more'.)",
+				);
+				console.error(
+					"    • The Meta App tied to the system user is not connected to the ad account.",
+				);
+				console.error("    • Token was copied with leading/trailing whitespace.");
+				console.error("");
+				console.error("  Reproduce the failure manually:");
+				console.error(
+					"    META_ACCESS_TOKEN=<your-token> meta ads auth status --output json --no-input",
+				);
+				console.error("");
+				console.error(
+					"  Configuration was still saved; rerun `pnpm cli init` after fixing the token.",
+				);
 			}
 
 			// Summary
