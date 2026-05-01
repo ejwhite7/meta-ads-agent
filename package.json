@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "cli": "pnpm --filter meta-ads-agent run cli --",
+    "cli": "turbo run build && pnpm --filter meta-ads-agent run cli --",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "biome check .",
