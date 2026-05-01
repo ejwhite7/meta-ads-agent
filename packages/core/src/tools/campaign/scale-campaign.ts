@@ -15,6 +15,8 @@
  */
 
 import { Type } from "@sinclair/typebox";
+import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
+import type { GuardrailConfig } from "../../decisions/types.js";
 import type { PendingAction } from "../../types.js";
 import { type ToolResult, createTool } from "../types.js";
 
@@ -46,7 +48,21 @@ export const scaleCampaignTool = createTool({
 	}),
 	async execute(params, context): Promise<ToolResult> {
 		const { campaignId, scaleFactor, reason } = params;
-		const { guardrails } = context;
+		/* Merge per-call guardrail overrides on top of safe defaults so this
+		 * tool can be invoked from tests/CLI without a fully-populated context. */
+		const guardrails: GuardrailConfig = {
+			...DEFAULT_GUARDRAILS,
+			...(context.guardrails ?? {}),
+		};
+		if (!context.metaClient) {
+			return {
+				success: false,
+				data: null,
+				error: "context.metaClient is required for scale_campaign",
+				message: "context.metaClient is required for scale_campaign",
+				errorCode: "META_CLIENT_UNAVAILABLE",
+			};
+		}
 
 		try {
 			/* ------------------------------------------------------------------
@@ -65,7 +81,7 @@ export const scaleCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 2: Fetch the campaign to get current budget
 			 * ----------------------------------------------------------------*/
-			const campaign = await context.metaClient.campaigns.show(campaignId);
+			const campaign = await context.metaClient.campaigns.get(campaignId);
 
 			if (!campaign) {
 				return {
@@ -77,7 +93,9 @@ export const scaleCampaignTool = createTool({
 				};
 			}
 
-			const currentBudget = campaign.dailyBudget;
+			/* Meta returns daily_budget as a string in account-currency cents. */
+			const currentBudgetCents = Number.parseInt(campaign.daily_budget ?? "0", 10);
+			const currentBudget = currentBudgetCents / 100;
 			const newBudget = Math.round(currentBudget * scaleFactor * 100) / 100;
 
 			/* ------------------------------------------------------------------
@@ -116,14 +134,21 @@ export const scaleCampaignTool = createTool({
 					createdAt: new Date().toISOString(),
 				};
 
-				await context.auditLogger.record({
-					toolName: "scale_campaign",
-					toolParams: { campaignId, scaleFactor, reason },
-					outcome:
-						`Pending approval: budget increase $${currentBudget.toFixed(2)} -> ` +
-						`$${newBudget.toFixed(2)} exceeds threshold. Action ID: ${pendingAction.id}`,
-					timestamp: new Date().toISOString(),
-				});
+				if (context.auditLogger) {
+					await context.auditLogger.logDecision({
+						sessionId: context.sessionId,
+						adAccountId: context.adAccountId,
+						toolName: "scale_campaign",
+						params: { campaignId, scaleFactor, reason },
+						reasoning: pendingAction.reason,
+						expectedOutcome: "PENDING_HUMAN_APPROVAL",
+						score: 0,
+						riskLevel: "high",
+						success: false,
+						resultData: { pendingId: pendingAction.id },
+						errorMessage: "Awaiting human approval",
+					});
+				}
 
 				return {
 					success: true,
@@ -140,25 +165,34 @@ export const scaleCampaignTool = createTool({
 			}
 
 			/* ------------------------------------------------------------------
-			 * Step 5: Execute the budget change
+			 * Step 5: Execute the budget change.
+			 * Meta's API expects daily_budget as a string in cents.
 			 * ----------------------------------------------------------------*/
-			const budgetInCents = Math.round(newBudget * 100);
-			const updated = await context.metaClient.campaigns.update(campaignId, {
-				daily_budget: budgetInCents,
-			});
+			const budgetInCentsString = String(Math.round(newBudget * 100));
+			if (!context.dryRun) {
+				await context.metaClient.campaigns.update(campaignId, {
+					daily_budget: budgetInCentsString,
+				});
+			}
 
 			/* ------------------------------------------------------------------
 			 * Step 6: Audit log with before/after budget
 			 * ----------------------------------------------------------------*/
-			await context.auditLogger.record({
-				toolName: "scale_campaign",
-				toolParams: { campaignId, scaleFactor, reason },
-				outcome:
-					`Scaled campaign ${campaignId} ('${campaign.name}') budget: ` +
-					`$${currentBudget.toFixed(2)} -> $${newBudget.toFixed(2)} ` +
-					`(factor: ${scaleFactor}). Reason: ${reason}`,
-				timestamp: new Date().toISOString(),
-			});
+			if (context.auditLogger) {
+				await context.auditLogger.logDecision({
+					sessionId: context.sessionId,
+					adAccountId: context.adAccountId,
+					toolName: "scale_campaign",
+					params: { campaignId, scaleFactor, reason },
+					reasoning: reason,
+					expectedOutcome: `Budget $${currentBudget.toFixed(2)} -> $${newBudget.toFixed(2)} (factor ${scaleFactor})`,
+					score: 0,
+					riskLevel: "medium",
+					success: true,
+					resultData: { previousBudget: currentBudget, newBudget, scaleFactor },
+					errorMessage: null,
+				});
+			}
 
 			return {
 				success: true,

@@ -29,6 +29,7 @@ function createMockContext(
 					status: "ACTIVE",
 					objective: "OUTCOME_SALES",
 					dailyBudget: 100,
+					daily_budget: "10000",
 					createdTime: "2024-01-01T00:00:00Z",
 					updatedTime: "2024-06-01T00:00:00Z",
 				};
@@ -37,7 +38,7 @@ function createMockContext(
 		metaClient: {
 			campaigns: {
 				list: vi.fn(),
-				show: overrides.showError
+				get: overrides.showError
 					? vi.fn().mockRejectedValue(overrides.showError)
 					: vi.fn().mockResolvedValue(campaign),
 				create: vi.fn(),
@@ -52,7 +53,11 @@ function createMockContext(
 			ads: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
 			splitTests: { create: vi.fn(), get: vi.fn() },
 		},
-		auditLogger: { record: vi.fn().mockResolvedValue(undefined) },
+		auditLogger: {
+			logDecision: vi.fn(),
+			onFailure: vi.fn(),
+			getConsecutiveFailures: vi.fn().mockReturnValue(0).mockResolvedValue(undefined),
+		},
 		goals: { roasTarget: 4.0, cpaCap: 25.0, dailyBudgetLimit: 1000, riskLevel: "moderate" },
 		guardrails: {
 			minDailyBudget: overrides.minDailyBudget ?? 5,
@@ -88,7 +93,7 @@ describe("scaleCampaignTool", () => {
 		expect(result.error).toContain("2.5");
 		expect(result.error).toContain("2");
 		// MetaClient should NOT have been called
-		expect(ctx.metaClient.campaigns.show).not.toHaveBeenCalled();
+		expect(ctx.metaClient.campaigns.get).not.toHaveBeenCalled();
 	});
 
 	it("allows scale factor at exactly the max limit", async () => {
@@ -111,15 +116,16 @@ describe("scaleCampaignTool", () => {
 	// -----------------------------------------------------------------------
 
 	it("rejects when new budget falls below minDailyBudget", async () => {
-		const campaign: Campaign = {
+		const campaign = {
 			id: "camp_002",
 			name: "Low Budget Campaign",
 			status: "ACTIVE",
 			objective: "OUTCOME_TRAFFIC",
 			dailyBudget: 8,
+			daily_budget: "800",
 			createdTime: "2024-01-01T00:00:00Z",
 			updatedTime: "2024-06-01T00:00:00Z",
-		};
+		} as unknown as Campaign;
 
 		const ctx = createMockContext({ campaign, minDailyBudget: 5 });
 
@@ -193,7 +199,7 @@ describe("scaleCampaignTool", () => {
 
 		// MetaClient.update should have been called with cents
 		expect(ctx.metaClient.campaigns.update).toHaveBeenCalledWith("camp_001", {
-			daily_budget: 15000,
+			daily_budget: "15000",
 		});
 	});
 
@@ -242,11 +248,11 @@ describe("scaleCampaignTool", () => {
 			ctx,
 		);
 
-		expect(ctx.auditLogger.record).toHaveBeenCalledTimes(1);
-		const entry = (ctx.auditLogger.record as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(ctx.auditLogger.logDecision).toHaveBeenCalledTimes(1);
+		const entry = (ctx.auditLogger.logDecision as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(entry.toolName).toBe("scale_campaign");
-		expect(entry.outcome).toContain("$100.00");
-		expect(entry.outcome).toContain("$150.00");
+		expect(entry.expectedOutcome).toContain("$100.00");
+		expect(entry.expectedOutcome).toContain("$150.00");
 	});
 
 	it("returns error on MetaClient failure", async () => {

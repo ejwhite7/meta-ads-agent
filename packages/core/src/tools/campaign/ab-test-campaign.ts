@@ -70,16 +70,17 @@ export const abTestCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 2: Validate budget against guardrail minimum
 			 * ----------------------------------------------------------------*/
-			if (budget < context.guardrails.minDailyBudget) {
+			const minDailyBudget = context.guardrails?.minDailyBudget ?? 5;
+			if (budget < minDailyBudget) {
 				return {
 					success: false,
 					data: null,
 					error:
 						`Test budget $${budget.toFixed(2)} is below the minimum ` +
-						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+						`of $${minDailyBudget.toFixed(2)}`,
 					message:
 						`Test budget $${budget.toFixed(2)} is below the minimum ` +
-						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+						`of $${minDailyBudget.toFixed(2)}`,
 					errorCode: "GUARDRAIL_MIN_BUDGET_VIOLATED",
 				};
 			}
@@ -98,21 +99,30 @@ export const abTestCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 4: Audit log
 			 * ----------------------------------------------------------------*/
-			await context.auditLogger.record({
-				toolName: "ab_test_campaign",
-				toolParams: {
+			if (context.auditLogger) {
+				await context.auditLogger.logDecision({
+					sessionId: context.sessionId,
 					adAccountId: context.adAccountId,
-					name: trimmedName,
-					testVariable,
-					duration,
-					budget,
-				},
-				outcome:
-					`Created A/B split test '${trimmedName}' (ID: ${splitTest.id}). ` +
-					`Variable: ${testVariable}, duration: ${duration} days, ` +
-					`budget: $${budget.toFixed(2)}`,
-				timestamp: new Date().toISOString(),
-			});
+					toolName: "ab_test_campaign",
+					params: {
+						adAccountId: context.adAccountId,
+						name: trimmedName,
+						testVariable,
+						duration,
+						budget,
+					},
+					reasoning: "ab_test_campaign tool invocation",
+					expectedOutcome:
+						`Created A/B split test '${trimmedName}' (ID: ${splitTest.id}). ` +
+						`Variable: ${testVariable}, duration: ${duration} days, ` +
+						`budget: $${budget.toFixed(2)}`,
+					score: 0,
+					riskLevel: "medium",
+					success: true,
+					resultData: { splitTestId: splitTest.id },
+					errorMessage: null,
+				});
+			}
 
 			return {
 				success: true,

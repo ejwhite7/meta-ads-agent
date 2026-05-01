@@ -26,6 +26,7 @@ function createMockContext(
 					status: "ACTIVE",
 					objective: "OUTCOME_SALES",
 					dailyBudget: 50,
+					daily_budget: "5000",
 					createdTime: "2024-01-01T00:00:00Z",
 					updatedTime: "2024-06-01T00:00:00Z",
 				};
@@ -36,7 +37,7 @@ function createMockContext(
 		metaClient: {
 			campaigns: {
 				list: vi.fn(),
-				show: overrides.showError
+				get: overrides.showError
 					? vi.fn().mockRejectedValue(overrides.showError)
 					: vi.fn().mockResolvedValue(campaign),
 				create: vi.fn(),
@@ -47,7 +48,11 @@ function createMockContext(
 			ads: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
 			splitTests: { create: vi.fn(), get: vi.fn() },
 		},
-		auditLogger: { record: vi.fn().mockResolvedValue(undefined) },
+		auditLogger: {
+			logDecision: vi.fn(),
+			onFailure: vi.fn(),
+			getConsecutiveFailures: vi.fn().mockReturnValue(0).mockResolvedValue(undefined),
+		},
 		goals: { roasTarget: 4.0, cpaCap: 25.0, dailyBudgetLimit: 1000, riskLevel: "moderate" },
 		guardrails: {
 			minDailyBudget: 5,
@@ -106,16 +111,15 @@ describe("pauseCampaignTool", () => {
 			ctx,
 		);
 
-		expect(ctx.auditLogger.record).toHaveBeenCalledTimes(1);
-		const entry = (ctx.auditLogger.record as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(ctx.auditLogger.logDecision).toHaveBeenCalledTimes(1);
+		const entry = (ctx.auditLogger.logDecision as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(entry.toolName).toBe("pause_campaign");
-		expect(entry.toolParams).toEqual({
+		expect(entry.params).toEqual({
 			campaignId: "camp_001",
 			reason: "CPA exceeds cap by 40%",
 		});
-		expect(entry.outcome).toContain("Paused campaign camp_001");
-		expect(entry.outcome).toContain("CPA exceeds cap by 40%");
-		expect(entry.timestamp).toBeDefined();
+		expect(entry.expectedOutcome).toContain("Paused campaign camp_001");
+		expect(entry.reasoning).toContain("CPA exceeds cap by 40%");
 	});
 
 	// -----------------------------------------------------------------------

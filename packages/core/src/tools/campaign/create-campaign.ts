@@ -14,6 +14,8 @@
  */
 
 import { Type } from "@sinclair/typebox";
+import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
+import type { GuardrailConfig } from "../../decisions/types.js";
 import { type ToolResult, createTool } from "../types.js";
 
 /**
@@ -71,6 +73,10 @@ export const createCampaignTool = createTool({
 	async execute(params, context): Promise<ToolResult> {
 		const { name, objective, dailyBudget, status } = params;
 		const initialStatus = status ?? "PAUSED";
+		const guardrails: GuardrailConfig = {
+			...DEFAULT_GUARDRAILS,
+			...(context.guardrails ?? {}),
+		};
 
 		try {
 			/* ------------------------------------------------------------------
@@ -90,16 +96,16 @@ export const createCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 2: Validate budget against guardrail minimum
 			 * ----------------------------------------------------------------*/
-			if (dailyBudget < context.guardrails.minDailyBudget) {
+			if (dailyBudget < guardrails.minDailyBudget) {
 				return {
 					success: false,
 					data: null,
 					error:
 						`Daily budget $${dailyBudget.toFixed(2)} is below the minimum ` +
-						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+						`of $${guardrails.minDailyBudget.toFixed(2)}`,
 					message:
 						`Daily budget $${dailyBudget.toFixed(2)} is below the minimum ` +
-						`of $${context.guardrails.minDailyBudget.toFixed(2)}`,
+						`of $${guardrails.minDailyBudget.toFixed(2)}`,
 					errorCode: "GUARDRAIL_MIN_BUDGET_VIOLATED",
 				};
 			}
@@ -132,20 +138,29 @@ export const createCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 5: Audit log
 			 * ----------------------------------------------------------------*/
-			await context.auditLogger.record({
-				toolName: "create_campaign",
-				toolParams: {
+			if (context.auditLogger) {
+				await context.auditLogger.logDecision({
+					sessionId: context.sessionId,
 					adAccountId: context.adAccountId,
-					name: trimmedName,
-					objective,
-					dailyBudget,
-					status: initialStatus,
-				},
-				outcome:
-					`Created campaign '${trimmedName}' (ID: ${campaign.id}) with objective ` +
-					`${objective}, budget $${dailyBudget.toFixed(2)}/day, status ${initialStatus}`,
-				timestamp: new Date().toISOString(),
-			});
+					toolName: "create_campaign",
+					params: {
+						adAccountId: context.adAccountId,
+						name: trimmedName,
+						objective,
+						dailyBudget,
+						status: initialStatus,
+					},
+					reasoning: "create_campaign tool invocation",
+					expectedOutcome:
+						`Created campaign '${trimmedName}' (ID: ${campaign.id}) with objective ` +
+						`${objective}, budget $${dailyBudget.toFixed(2)}/day, status ${initialStatus}`,
+					score: 0,
+					riskLevel: "medium",
+					success: true,
+					resultData: { campaignId: campaign.id },
+					errorMessage: null,
+				});
+			}
 
 			return {
 				success: true,

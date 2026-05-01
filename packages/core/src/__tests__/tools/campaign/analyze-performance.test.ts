@@ -25,7 +25,7 @@ function createMockContext(
 		metaClient: {
 			campaigns: {
 				list: vi.fn(),
-				show: overrides.showError
+				get: overrides.showError
 					? vi.fn().mockRejectedValue(overrides.showError)
 					: vi.fn().mockResolvedValue(campaign),
 				create: vi.fn(),
@@ -36,7 +36,11 @@ function createMockContext(
 			ads: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
 			splitTests: { create: vi.fn(), get: vi.fn() },
 		},
-		auditLogger: { record: vi.fn().mockResolvedValue(undefined) },
+		auditLogger: {
+			logDecision: vi.fn(),
+			onFailure: vi.fn(),
+			getConsecutiveFailures: vi.fn().mockReturnValue(0).mockResolvedValue(undefined),
+		},
 		goals: {
 			roasTarget: overrides.roasTarget ?? 4.0,
 			cpaCap: overrides.cpaCap ?? 25.0,
@@ -306,10 +310,10 @@ describe("analyzePerformanceTool", () => {
 
 		await analyzePerformanceTool.execute({ campaignId: "camp_001", dateRange: "last_30d" }, ctx);
 
-		expect(ctx.auditLogger.record).toHaveBeenCalledTimes(1);
-		const entry = (ctx.auditLogger.record as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(ctx.auditLogger.logDecision).toHaveBeenCalledTimes(1);
+		const entry = (ctx.auditLogger.logDecision as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(entry.toolName).toBe("analyze_performance");
-		expect(entry.outcome).toContain("Performance Test Campaign");
+		expect(entry.expectedOutcome).toContain("Performance Test Campaign");
 	});
 
 	it("returns error on MetaClient failure", async () => {
