@@ -13,7 +13,7 @@
  * 4. Act -- return ranked proposals for the executor
  */
 
-import { proposeActions } from "../decisions/engine.js";
+import { proposeActionsFull } from "../decisions/engine.js";
 import type { ToolDefinition } from "../llm/types.js";
 import { allTools } from "../tools/index.js";
 import { ToolRegistry } from "../tools/registry.js";
@@ -104,18 +104,25 @@ function buildSystemPrompt(goals: AgentGoal, adAccountId: string): string {
 		`- Risk Level: ${goals.riskLevel}`,
 		"",
 		"Analyze the campaign metrics and propose optimization actions.",
-		"For each action, provide:",
-		"- toolName: the tool to invoke",
-		"- params: parameters for the tool",
-		"- reasoning: why this action will improve performance",
-		"- expectedOutcome: what you expect to happen",
-		"- confidence: your confidence level (0.0 to 1.0)",
-		"- expectedImpact: estimated impact magnitude (0.0 to 1.0)",
-		'- riskLevel: "low", "medium", or "high"',
 		"",
-		"Return your proposals as a JSON array.",
+		"Output a single JSON array wrapped in <actions>...</actions> tags.",
+		"Each array element must be an object with these fields:",
+		"  - toolName       string  -- one of the registered tool names below",
+		"  - params         object  -- parameters matching the tool's schema",
+		"  - reasoning      string  -- why this action will improve performance",
+		"  - expectedOutcome string  -- what you expect to happen",
+		"  - confidence     number  -- 0.0 to 1.0",
+		"  - expectedImpact number  -- 0.0 to 1.0",
+		'  - riskLevel      string  -- "low" | "medium" | "high"',
+		"",
+		"Example shape:",
+		"<actions>",
+		'[{"toolName": "set_budget", "params": {...}, "reasoning": "...", "expectedOutcome": "...", "confidence": 0.7, "expectedImpact": 0.4, "riskLevel": "low"}]',
+		"</actions>",
+		"",
 		"Be conservative with budget changes -- prefer small incremental adjustments.",
 		"Never propose actions that violate the daily budget limit.",
+		"If no action is warranted, output <actions>[]</actions>.",
 	].join("\n");
 }
 
@@ -126,7 +133,11 @@ function buildSystemPrompt(goals: AgentGoal, adAccountId: string): string {
  * @param summary - Aggregated metrics summary
  * @returns User prompt string containing metrics data
  */
-function buildUserPrompt(metrics: CampaignMetrics[], summary: MetricsSummary): string {
+function buildUserPrompt(
+	metrics: CampaignMetrics[],
+	summary: MetricsSummary,
+	toolDefs: ToolDefinition[],
+): string {
 	const metricsTable = metrics
 		.map(
 			(m) =>
@@ -137,6 +148,8 @@ function buildUserPrompt(metrics: CampaignMetrics[], summary: MetricsSummary): s
 				`conversions=${m.conversions} (${m.date})`,
 		)
 		.join("\n");
+
+	const toolList = toolDefs.map((t) => `- ${t.name}: ${t.description}`).join("\n");
 
 	return [
 		"Current campaign performance metrics:",
@@ -149,7 +162,10 @@ function buildUserPrompt(metrics: CampaignMetrics[], summary: MetricsSummary): s
 			`avg CPA $${summary.avgCpa.toFixed(2)}, ` +
 			`avg CTR ${(summary.avgCtr * 100).toFixed(2)}%`,
 		"",
-		"Propose optimization actions as a JSON array.",
+		"Available tools:",
+		toolList,
+		"",
+		"Propose optimization actions as a JSON array wrapped in <actions>...</actions>.",
 	].join("\n");
 }
 
@@ -175,24 +191,19 @@ export async function runAgentLoop(context: AgentLoopContext): Promise<AgentLoop
 	const summary = summarizeMetrics(context.metrics);
 
 	/* ORIENT: Build prompts with goals and metrics context */
-	const systemPrompt = buildSystemPrompt(context.goals, context.adAccountId);
-	const userPrompt = buildUserPrompt(context.metrics, summary);
 	const toolDefinitions = buildToolDefinitions(context);
+	const systemPrompt = buildSystemPrompt(context.goals, context.adAccountId);
+	const userPrompt = buildUserPrompt(context.metrics, summary, toolDefinitions);
 
-	/* DECIDE: Stream LLM reasoning to generate action proposals */
+	/* DECIDE: Stream LLM reasoning. We use streamSimple here because the
+	 * decision engine operates on the structured <actions> JSON the LLM
+	 * emits in its message body. Tool definitions are passed in the prompt
+	 * for context so the LLM picks valid tool names and parameter shapes. */
 	const stream = context.llmProvider.streamSimple(userPrompt, systemPrompt);
-
-	/* Consume the stream to get the full reasoning text */
-	let reasoning = "";
-	for await (const chunk of stream) {
-		reasoning += chunk;
-	}
-
-	/* Wait for the final result (same as reasoning for streamSimple) */
 	const fullReasoning = await stream.result();
 
-	/* ACT: Score, filter, and rank proposals via the decision engine */
-	const proposals = proposeActions(
+	/* ACT: Parse, score, filter; surface both approved + pending proposals. */
+	const { approved, pending } = proposeActionsFull(
 		context.metrics,
 		context.goals,
 		context.toolRegistry.getAll(),
@@ -200,11 +211,12 @@ export async function runAgentLoop(context: AgentLoopContext): Promise<AgentLoop
 		context.guardrails,
 	);
 
-	/* Enforce maxProposals limit */
-	const limitedProposals = proposals.slice(0, context.maxProposals);
+	/* Enforce maxProposals limit on approved actions */
+	const limitedProposals = approved.slice(0, context.maxProposals);
 
 	return {
 		proposals: limitedProposals,
+		pendingActions: pending,
 		reasoning: fullReasoning,
 		metricsSummary: summary,
 		timestamp: new Date().toISOString(),

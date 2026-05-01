@@ -11,7 +11,7 @@ import type { AgentConfig } from "../config/types.js";
 import type { ActionProposal, GuardrailConfig } from "../decisions/types.js";
 import type { LLMProvider } from "../llm/types.js";
 import type { ToolRegistry } from "../tools/registry.js";
-import type { AgentAction, AgentGoal, CampaignMetrics } from "../types.js";
+import type { AgentAction, AgentGoal, CampaignMetrics, PendingAction } from "../types.js";
 
 /**
  * Input context for a single agent loop iteration.
@@ -49,8 +49,11 @@ export interface AgentLoopContext {
  * and a summary of the metrics that informed the decisions.
  */
 export interface AgentLoopResult {
-	/** Ranked action proposals (highest score first) */
+	/** Ranked action proposals approved for execution (highest score first) */
 	readonly proposals: ActionProposal[];
+
+	/** Proposals that exceeded guardrails and require human approval */
+	readonly pendingActions: PendingAction[];
 
 	/** Full LLM reasoning text for audit logging */
 	readonly reasoning: string;

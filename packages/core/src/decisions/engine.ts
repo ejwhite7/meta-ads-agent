@@ -15,11 +15,92 @@ import type { ActionProposal, GuardrailConfig, RawProposedAction } from "./types
 import { DEFAULT_GUARDRAILS } from "./types.js";
 
 /**
+ * Extracts the first balanced top-level JSON array from a string.
+ *
+ * Walks the string character-by-character, tracking string boundaries
+ * (so brackets inside string literals are ignored) and bracket depth.
+ * Returns the substring spanning the first `[` through its matching `]`,
+ * or null if no balanced array is found.
+ *
+ * This is robust against:
+ *   - Markdown code fences and surrounding prose
+ *   - Nested arrays in tool params (e.g. `params.fields: ["a","b"]`)
+ *   - Earlier inline arrays in the prose like `[1, 2, 3]`
+ *   - String literals containing `[` or `]`
+ *
+ * @internal
+ */
+export function extractFirstJsonArray(text: string): string | null {
+	/* If the text contains an explicit <actions>...</actions> block, prefer
+	 * the array inside it. This is the format the system prompt asks for and
+	 * disambiguates the agent's intended action list from incidental arrays
+	 * that may appear in prose (e.g. "recent ROAS values: [3.1, 3.4, 2.9]"). */
+	const tagged = text.match(/<actions>([\s\S]*?)<\/actions>/i);
+	const search = tagged ? tagged[1] : text;
+
+	/* Walk every `[`; the first one whose matching `]` parses as a JSON
+	 * array is returned. This skips inline numeric arrays in prose. */
+	let searchFrom = search.indexOf("[");
+	while (searchFrom !== -1) {
+		const end = findMatchingBracket(search, searchFrom);
+		if (end !== -1) {
+			const slice = search.slice(searchFrom, end + 1);
+			try {
+				const parsed = JSON.parse(slice);
+				if (Array.isArray(parsed)) {
+					return slice;
+				}
+			} catch {
+				/* Try the next `[`. */
+			}
+		}
+		searchFrom = search.indexOf("[", searchFrom + 1);
+	}
+	return null;
+}
+
+/**
+ * Finds the index of the `]` that matches the `[` at position `openAt`.
+ * Returns -1 if no balanced match exists. Respects string literals.
+ *
+ * @internal
+ */
+function findMatchingBracket(text: string, openAt: number): number {
+	let depth = 0;
+	let inString = false;
+	let stringQuote = "";
+	for (let i = openAt; i < text.length; i++) {
+		const ch = text[i];
+		if (inString) {
+			if (ch === "\\") {
+				i++; /* skip escaped char */
+				continue;
+			}
+			if (ch === stringQuote) {
+				inString = false;
+			}
+			continue;
+		}
+		if (ch === '"' || ch === "'") {
+			inString = true;
+			stringQuote = ch;
+			continue;
+		}
+		if (ch === "[") depth++;
+		else if (ch === "]") {
+			depth--;
+			if (depth === 0) return i;
+		}
+	}
+	return -1;
+}
+
+/**
  * Parses structured action proposals from LLM reasoning text.
  *
- * Expects the LLM to output actions in a JSON array format within its
- * reasoning. Searches for a JSON array pattern and parses it. Falls back
- * to returning an empty array if no valid JSON is found.
+ * Expects the LLM to output actions as a JSON array. Searches for the first
+ * balanced top-level JSON array (skipping inline arrays in prose) and parses
+ * it. Falls back to returning an empty array if no valid JSON is found.
  *
  * @param llmReasoning - Raw text output from the LLM
  * @param availableTools - List of tools the agent can use (for validation)
@@ -32,15 +113,14 @@ export function parseActions(
 	const toolNames = new Set(availableTools.map((t) => t.name));
 	const actions: RawProposedAction[] = [];
 
-	/* Try to find a JSON array in the LLM output */
-	const jsonMatch = llmReasoning.match(/\[[\s\S]*?\]/);
-	if (!jsonMatch) {
+	const jsonText = extractFirstJsonArray(llmReasoning);
+	if (!jsonText) {
 		return actions;
 	}
 
 	let parsed: unknown[];
 	try {
-		parsed = JSON.parse(jsonMatch[0]) as unknown[];
+		parsed = JSON.parse(jsonText) as unknown[];
 	} catch {
 		return actions;
 	}
@@ -132,16 +212,15 @@ export function applyGuardrails(
 	currentMetrics: CampaignMetrics[],
 ): GuardrailResult {
 	/* Build a map of current daily budgets by campaign ID.
-	 * dailyBudget comes from the campaign snapshot, not spend. */
+	 * dailyBudget comes from the campaign snapshot. We deliberately do NOT
+	 * fall back to spend, because for newly-launched or under-pacing
+	 * campaigns spend << budget, and the scale-factor check would then
+	 * reject every reasonable proposed budget as "exceeds maxScaleFactor". */
 	const currentBudgetByCampaign = new Map<string, number>();
 	for (const metric of currentMetrics) {
-		/* Use dailyBudget if available, otherwise fall back to spend as estimate */
-		// biome-ignore lint/suspicious/noExplicitAny: accessing optional dailyBudget field
-		const budget = (metric as any).dailyBudget;
-		currentBudgetByCampaign.set(
-			metric.campaignId,
-			typeof budget === "number" ? budget : metric.spend,
-		);
+		if (typeof metric.dailyBudget === "number") {
+			currentBudgetByCampaign.set(metric.campaignId, metric.dailyBudget);
+		}
 	}
 
 	/** Budget-modifying tool names */
@@ -164,7 +243,11 @@ export function applyGuardrails(
 		}
 
 		const campaignId = proposal.params.campaignId as string | undefined;
-		const currentBudget = campaignId ? (currentBudgetByCampaign.get(campaignId) ?? 0) : 0;
+		/* `currentBudget` is undefined when we have no live snapshot for this
+		 * campaign (typical first tick or a brand-new campaign). The scale-
+		 * factor check below skips when currentBudget is unknown so we don't
+		 * spuriously reject the proposal. */
+		const currentBudget = campaignId ? currentBudgetByCampaign.get(campaignId) : undefined;
 
 		/* --- Tool-specific guardrail checks --- */
 
@@ -182,9 +265,9 @@ export function applyGuardrails(
 
 		if (proposal.params.dailyBudget !== undefined) {
 			newBudget = Number(proposal.params.dailyBudget);
-		} else if (proposal.params.scaleFactor !== undefined) {
+		} else if (proposal.params.scaleFactor !== undefined && currentBudget !== undefined) {
 			newBudget = currentBudget * Number(proposal.params.scaleFactor);
-		} else if (proposal.params.amount !== undefined) {
+		} else if (proposal.params.amount !== undefined && currentBudget !== undefined) {
 			/* reallocate_budget uses amount */
 			newBudget = currentBudget + Number(proposal.params.amount);
 		}
@@ -201,8 +284,9 @@ export function applyGuardrails(
 			continue;
 		}
 
-		/* Check scale factor against current budget (not spend) */
-		if (currentBudget > 0) {
+		/* Check scale factor against current budget (not spend). Skip when
+		 * we don't have a live current budget snapshot to compare against. */
+		if (currentBudget !== undefined && currentBudget > 0) {
 			const effectiveScaleFactor = newBudget / currentBudget;
 			if (effectiveScaleFactor > guardrails.maxBudgetScaleFactor) {
 				/* Hard reject -- effective scale factor exceeds limit */
@@ -233,11 +317,29 @@ export function applyGuardrails(
 }
 
 /**
+ * Result of running the full decision pipeline.
+ *
+ * Surfaces both approved proposals (safe to execute) and pending
+ * proposals (require human approval). Callers MUST forward `pending`
+ * to the audit log/dashboard so operators can see what the agent
+ * wanted to do.
+ */
+export interface DecisionResult {
+	readonly approved: ActionProposal[];
+	readonly pending: PendingAction[];
+}
+
+/**
  * Main decision engine entry point.
  *
  * Parses LLM reasoning to extract proposed actions, scores each one,
  * applies guardrail filters, enforces the max-actions-per-cycle limit,
- * and returns a ranked list of safe actions ready for execution.
+ * and returns a ranked list of safe actions ready for execution along
+ * with any actions that require human approval.
+ *
+ * Backwards-compat: callers that previously got an `ActionProposal[]`
+ * should switch to `proposeActionsFull` or destructure the
+ * `.approved` field below.
  *
  * @param metrics - Current campaign performance metrics
  * @param goals - Agent optimization goals
@@ -253,24 +355,35 @@ export function proposeActions(
 	llmReasoning: string,
 	guardrails?: Partial<GuardrailConfig>,
 ): ActionProposal[] {
+	return proposeActionsFull(metrics, goals, availableTools, llmReasoning, guardrails).approved;
+}
+
+/**
+ * Full-result variant of {@link proposeActions} that exposes both approved
+ * and pending proposals. Prefer this over `proposeActions` so pending
+ * actions can be surfaced to operators.
+ */
+export function proposeActionsFull(
+	metrics: CampaignMetrics[],
+	_goals: AgentGoal,
+	availableTools: Tool<TObject>[],
+	llmReasoning: string,
+	guardrails?: Partial<GuardrailConfig>,
+): DecisionResult {
 	const effectiveGuardrails: GuardrailConfig = {
 		...DEFAULT_GUARDRAILS,
 		...guardrails,
 	};
 
-	/* Step 1: Parse raw actions from LLM output */
 	const rawActions = parseActions(llmReasoning, availableTools);
-
 	if (rawActions.length === 0) {
-		return [];
+		return { approved: [], pending: [] };
 	}
 
-	/* Step 2: Score and rank proposals */
 	const ranked = rankProposals(rawActions);
-
-	/* Step 3: Apply guardrail filters */
-	const { approved } = applyGuardrails(ranked, effectiveGuardrails, metrics);
-
-	/* Step 4: Enforce max actions per cycle */
-	return approved.slice(0, effectiveGuardrails.maxActionsPerCycle);
+	const { approved, pending } = applyGuardrails(ranked, effectiveGuardrails, metrics);
+	return {
+		approved: approved.slice(0, effectiveGuardrails.maxActionsPerCycle),
+		pending,
+	};
 }
