@@ -305,6 +305,20 @@ export function registerInitCommand(program: Command): void {
 			console.log(`  Max Scale Factor:      ${goals.maxBudgetScaleFactor}x`);
 			console.log(`  Approval Threshold:    $${goals.requireApprovalAbove}`);
 			console.log();
-			success("Run `meta-ads-agent run` to start the agent.");
+
+			/* Detect whether we're running from the published binary or from the
+			 * monorepo via `pnpm cli` (tsx) so we can suggest the correct next
+			 * command. argv[1] points to the entry script in both cases. */
+			const entry = process.argv[1] ?? "";
+			const inDevWorkspace = entry.includes("src/index.ts") || entry.includes(".tsx");
+
+			success("Next step:");
+			if (inDevWorkspace) {
+				console.log("  pnpm cli run                 # start the agent from this workspace");
+				console.log("  pnpm cli run --dry-run       # preview without executing actions");
+			} else {
+				console.log("  meta-ads-agent run           # start the agent");
+				console.log("  meta-ads-agent run --dry-run # preview without executing actions");
+			}
 		});
 }
