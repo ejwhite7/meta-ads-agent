@@ -11,6 +11,7 @@ import type { MetaClient } from "@meta-ads-agent/meta-client";
 import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
+import { resolveMetaClient } from "./_client.js";
 
 /**
  * Severity level for a pacing alert.
@@ -54,7 +55,7 @@ type GetPacingAlertsInput = Static<typeof GetPacingAlertsParams>;
  * @param client - Initialized MetaClient instance for API access.
  * @returns Frozen tool definition ready for registry.
  */
-export function createGetPacingAlertsTool(client: MetaClient) {
+export function createGetPacingAlertsTool(client: MetaClient | null = null) {
 	return createTool({
 		name: "get_pacing_alerts",
 		description:
@@ -64,17 +65,20 @@ export function createGetPacingAlertsTool(client: MetaClient) {
 		parameters: GetPacingAlertsParams,
 
 		async execute(params: GetPacingAlertsInput, context: ToolContext): Promise<ToolResult> {
+			const resolved = resolveMetaClient(client, context);
+			if (resolved.error) return resolved.error;
+			const c = resolved.client;
 			const now = new Date(context.timestamp);
 			const dayOfMonth = now.getDate();
 			const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 			const fractionElapsed = dayOfMonth / daysInMonth;
 
 			/* Fetch active campaigns */
-			const campaigns = await client.campaigns.list(context.adAccountId);
+			const campaigns = await c.campaigns.list(context.adAccountId);
 			const activeCampaigns = campaigns.filter((c) => c.status === "ACTIVE" && c.daily_budget);
 
 			/* Fetch campaign-level insights for this month */
-			const insights = await client.insights.query(context.adAccountId, {
+			const insights = await c.insights.query(context.adAccountId, {
 				level: "campaign",
 				date_preset: "this_month",
 				fields: ["campaign_id", "campaign_name", "spend"],

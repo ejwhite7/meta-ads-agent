@@ -11,6 +11,7 @@ import type { MetaClient } from "@meta-ads-agent/meta-client";
 import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
+import { resolveMetaClient } from "./_client.js";
 
 /**
  * Pacing status indicating whether spend is tracking to plan.
@@ -90,7 +91,7 @@ function classifyPacing(pacingRatio: number): PacingStatus {
  * @param client - Initialized MetaClient instance for API access.
  * @returns Frozen tool definition ready for registry.
  */
-export function createGetBudgetStatusTool(client: MetaClient) {
+export function createGetBudgetStatusTool(client: MetaClient | null = null) {
 	return createTool({
 		name: "get_budget_status",
 		description:
@@ -100,10 +101,14 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 		parameters: GetBudgetStatusParams,
 
 		async execute(params: GetBudgetStatusInput, context: ToolContext): Promise<ToolResult> {
+			const resolved = resolveMetaClient(client, context);
+			if (resolved.error) return resolved.error;
+			const c = resolved.client;
+
 			const now = new Date(context.timestamp);
 
 			/* Fetch campaign list to compute total budget */
-			const campaigns = await client.campaigns.list(context.adAccountId);
+			const campaigns = await c.campaigns.list(context.adAccountId);
 			const activeCampaigns = campaigns.filter((c) => c.status === "ACTIVE");
 
 			/* Sum daily budgets across active campaigns (budgets are in cents) */
@@ -116,7 +121,7 @@ export function createGetBudgetStatusTool(client: MetaClient) {
 			const totalDailyBudget = totalDailyBudgetCents / 100;
 
 			/* Fetch account-level insights for the requested period */
-			const insights = await client.insights.query(context.adAccountId, {
+			const insights = await c.insights.query(context.adAccountId, {
 				level: "account",
 				date_preset: params.datePreset,
 				fields: ["spend", "impressions", "clicks", "actions"],

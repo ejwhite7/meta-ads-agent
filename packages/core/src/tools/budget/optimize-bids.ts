@@ -12,6 +12,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import type { AgentGoal } from "../../types.js";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
+import { resolveMetaClient } from "./_client.js";
 
 /**
  * TypeBox schema for optimize_bids tool parameters.
@@ -58,7 +59,13 @@ const BID_STRATEGY_MAP: Record<string, string> = {
  * @param goals - Agent goals containing the CPA cap for bid recommendations.
  * @returns Frozen tool definition ready for registry.
  */
-export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
+export function createOptimizeBidsTool(client: MetaClient | null = null, goals?: AgentGoal) {
+	const effectiveGoals: AgentGoal = goals ?? {
+		roasTarget: 3.0,
+		cpaCap: 50,
+		dailyBudgetLimit: 10_000,
+		riskLevel: "moderate",
+	};
 	return createTool({
 		name: "optimize_bids",
 		description:
@@ -67,6 +74,9 @@ export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
 		parameters: OptimizeBidsParams,
 
 		async execute(params: OptimizeBidsInput, context: ToolContext): Promise<ToolResult> {
+			const resolved = resolveMetaClient(client, context);
+			if (resolved.error) return resolved.error;
+			const c = resolved.client;
 			const { campaignId, bidStrategy, bidAmount } = params;
 
 			/* Validate: COST_CAP and BID_CAP require a bid amount */
@@ -83,11 +93,11 @@ export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
 			}
 
 			/* Fetch current campaign state */
-			const campaign = await client.campaigns.get(campaignId);
+			const campaign = await c.campaigns.get(campaignId);
 			const previousStrategy = campaign.bid_strategy ?? "LOWEST_COST_WITHOUT_CAP";
 
 			/* Fetch recent performance to generate reasoning */
-			const insights = await client.insights.query(context.adAccountId, {
+			const insights = await c.insights.query(context.adAccountId, {
 				level: "campaign",
 				date_preset: "last_7d",
 				fields: ["campaign_id", "spend", "actions", "impressions", "clicks"],
@@ -121,18 +131,18 @@ export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
 			const metaStrategy = BID_STRATEGY_MAP[bidStrategy] ?? bidStrategy;
 
 			if (bidStrategy === "COST_CAP") {
-				const effectiveBidAmount = bidAmount ?? goals.cpaCap;
-				if (currentCpa > goals.cpaCap) {
-					reasoning = `Current CPA ($${currentCpa.toFixed(2)}) exceeds target cap ($${goals.cpaCap.toFixed(2)}). Switching to COST_CAP with bid amount $${effectiveBidAmount.toFixed(2)} to constrain costs while maintaining delivery volume.`;
+				const effectiveBidAmount = bidAmount ?? effectiveGoals.cpaCap;
+				if (currentCpa > effectiveGoals.cpaCap) {
+					reasoning = `Current CPA ($${currentCpa.toFixed(2)}) exceeds target cap ($${effectiveGoals.cpaCap.toFixed(2)}). Switching to COST_CAP with bid amount $${effectiveBidAmount.toFixed(2)} to constrain costs while maintaining delivery volume.`;
 				} else {
 					reasoning =
 						`Proactively setting COST_CAP at $${effectiveBidAmount.toFixed(2)} ` +
-						`to prevent CPA from exceeding the $${goals.cpaCap.toFixed(2)} cap. ` +
+						`to prevent CPA from exceeding the $${effectiveGoals.cpaCap.toFixed(2)} cap. ` +
 						`Current CPA: $${currentCpa.toFixed(2)}.`;
 				}
 			} else if (bidStrategy === "LOWEST_COST") {
-				if (currentCpa > 0 && currentCpa < goals.cpaCap * 0.7) {
-					reasoning = `Current CPA ($${currentCpa.toFixed(2)}) is well below the cap ($${goals.cpaCap.toFixed(2)} at 70% threshold = $${(goals.cpaCap * 0.7).toFixed(2)}). Switching to LOWEST_COST to maximize delivery volume while CPA headroom exists.`;
+				if (currentCpa > 0 && currentCpa < effectiveGoals.cpaCap * 0.7) {
+					reasoning = `Current CPA ($${currentCpa.toFixed(2)}) is well below the cap ($${effectiveGoals.cpaCap.toFixed(2)} at 70% threshold = $${(effectiveGoals.cpaCap * 0.7).toFixed(2)}). Switching to LOWEST_COST to maximize delivery volume while CPA headroom exists.`;
 				} else {
 					reasoning = `Switching to LOWEST_COST to let Meta's algorithm optimize for maximum conversions without a bid cap. Current CPA: $${currentCpa > 0 ? currentCpa.toFixed(2) : "N/A"}.`;
 				}
@@ -151,7 +161,7 @@ export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
 						newStrategy: metaStrategy,
 						bidAmount: bidAmount ?? null,
 						currentCpa: Math.round(currentCpa * 100) / 100,
-						cpaCap: goals.cpaCap,
+						cpaCap: effectiveGoals.cpaCap,
 						reasoning,
 					},
 					message:
@@ -166,17 +176,17 @@ export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
 			const updateParams: Record<string, string> = {
 				bid_strategy: metaStrategy,
 			};
-			await client.campaigns.update(campaignId, updateParams);
+			await c.campaigns.update(campaignId, updateParams);
 
 			/* If bid amount specified and strategy supports it, update ad sets */
 			if (bidAmount && (bidStrategy === "COST_CAP" || bidStrategy === "BID_CAP")) {
-				const adSets = await client.adSets.list(context.adAccountId);
+				const adSets = await c.adSets.list(context.adAccountId);
 				const campaignAdSets = adSets.filter(
 					(as) => as.campaign_id === campaignId && as.status === "ACTIVE",
 				);
 				const bidAmountCents = Math.round(bidAmount * 100).toString();
 				for (const adSet of campaignAdSets) {
-					await client.adSets.update(adSet.id, {
+					await c.adSets.update(adSet.id, {
 						bid_amount: bidAmountCents,
 					});
 				}
@@ -191,7 +201,7 @@ export function createOptimizeBidsTool(client: MetaClient, goals: AgentGoal) {
 					newStrategy: metaStrategy,
 					bidAmount: bidAmount ?? null,
 					currentCpa: Math.round(currentCpa * 100) / 100,
-					cpaCap: goals.cpaCap,
+					cpaCap: effectiveGoals.cpaCap,
 					totalSpend: Math.round(totalSpend * 100) / 100,
 					totalConversions,
 					reasoning,

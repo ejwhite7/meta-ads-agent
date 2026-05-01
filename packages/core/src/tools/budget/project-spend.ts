@@ -10,6 +10,7 @@ import type { MetaClient } from "@meta-ads-agent/meta-client";
 import { type Static, Type } from "@sinclair/typebox";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
+import { resolveMetaClient } from "./_client.js";
 
 /**
  * Confidence level for spend projections.
@@ -88,7 +89,7 @@ function classifyConfidence(daysOfData: number): ProjectionConfidence {
  * @param client - Initialized MetaClient instance for API access.
  * @returns Frozen tool definition ready for registry.
  */
-export function createProjectSpendTool(client: MetaClient) {
+export function createProjectSpendTool(client: MetaClient | null = null) {
 	return createTool({
 		name: "project_spend",
 		description:
@@ -97,11 +98,14 @@ export function createProjectSpendTool(client: MetaClient) {
 		parameters: ProjectSpendParams,
 
 		async execute(params: ProjectSpendInput, context: ToolContext): Promise<ToolResult> {
+			const resolved = resolveMetaClient(client, context);
+			if (resolved.error) return resolved.error;
+			const c = resolved.client;
 			const now = new Date(context.timestamp);
 			const { projectionPeriod } = params;
 
 			/* Fetch last 7 days of account-level insights for burn rate calculation */
-			const insights = await client.insights.query(context.adAccountId, {
+			const insights = await c.insights.query(context.adAccountId, {
 				level: "account",
 				date_preset: "last_7d",
 				fields: ["spend", "impressions", "clicks", "actions"],
@@ -157,7 +161,7 @@ export function createProjectSpendTool(client: MetaClient) {
 					break;
 			}
 
-			const currentInsights = await client.insights.query(context.adAccountId, {
+			const currentInsights = await c.insights.query(context.adAccountId, {
 				level: "account",
 				date_preset: currentPeriodDatePreset,
 				fields: ["spend"],

@@ -43,13 +43,23 @@ import { createReallocateBudgetTool } from "./reallocate-budget.js";
 import { createSetBudgetTool } from "./set-budget.js";
 
 /**
- * Factory that creates all budget tools given a MetaClient-like instance.
+ * Factory that creates all budget tools.
  *
- * @param metaClient - A MetaClient (or compatible) instance for API calls
- * @returns Array of all budget tools ready for registration
+ * If `metaClient` is null (the default), each tool will resolve the
+ * MetaClient from `ToolContext` at execution time. This supports both
+ * registration patterns:
+ *   - Static registration via `budgetTools` (uses ToolContext at runtime)
+ *   - Bound registration via `createBudgetTools(realClient)` (uses the
+ *     bound client even if context.metaClient differs -- useful for
+ *     multi-account scenarios and tests).
+ *
+ * @param metaClient - Optional pre-bound MetaClient. If null, tools resolve
+ *   the client from ToolContext at execution time.
+ * @param goals - Optional agent goals (used by optimize_bids).
+ * @returns Array of all budget tools ready for registration.
  */
 export function createBudgetTools(
-	metaClient: MetaClient,
+	metaClient: MetaClient | null = null,
 	goals?: AgentGoal,
 ): ReadonlyArray<Tool<TObject>> {
 	const defaultGoals: AgentGoal = goals ?? {
@@ -69,16 +79,11 @@ export function createBudgetTools(
 }
 
 /**
- * Default budget tools instantiated without a MetaClient.
- * These use context.metaClient at execution time instead of a pre-bound client.
+ * Default budget tools registered without a bound MetaClient.
  *
- * For environments that need tools statically (e.g. allTools registration),
- * this array provides budget tools that defer client access to the ToolContext.
+ * Each tool resolves `ToolContext.metaClient` at execution time, so this
+ * array is safe to include in the static `allTools` registry. If the
+ * context does not provide a MetaClient, tools return a structured error
+ * (errorCode = META_CLIENT_UNAVAILABLE) rather than throwing at runtime.
  */
-export const budgetTools: ReadonlyArray<Tool<TObject>> = (() => {
-	/* Create a proxy MetaClient that defers to context.metaClient at execution time.
-	 * This allows budget tools to be registered statically in allTools while still
-	 * using the real MetaClient from ToolContext during execution. */
-	const deferredClient = {} as MetaClient;
-	return createBudgetTools(deferredClient);
-})();
+export const budgetTools: ReadonlyArray<Tool<TObject>> = createBudgetTools(null);
