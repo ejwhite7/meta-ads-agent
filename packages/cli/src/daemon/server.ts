@@ -6,10 +6,10 @@
  * run-once, get-decisions, get-campaigns.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { type Server, type Socket, createServer } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { logger } from "../utils/logger.js";
 
 /** Default socket path */
@@ -62,6 +62,18 @@ export class IpcServer {
 	 * Start listening on the Unix domain socket.
 	 */
 	async start(): Promise<void> {
+		/* Ensure the parent directory exists with owner-only permissions. */
+		const dir = dirname(this.socketPath);
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true, mode: 0o700 });
+		} else {
+			try {
+				chmodSync(dir, 0o700);
+			} catch {
+				/* not fatal */
+			}
+		}
+
 		// Clean up stale socket file
 		if (existsSync(this.socketPath)) {
 			try {
@@ -82,6 +94,12 @@ export class IpcServer {
 			});
 
 			this.server.listen(this.socketPath, () => {
+				/* Restrict the socket itself to owner read/write. */
+				try {
+					chmodSync(this.socketPath, 0o600);
+				} catch (err: unknown) {
+					logger.debug("Failed to chmod socket: %s", (err as Error).message);
+				}
 				logger.info("IPC server listening on %s", this.socketPath);
 				resolve();
 			});

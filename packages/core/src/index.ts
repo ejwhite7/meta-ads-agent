@@ -70,8 +70,14 @@ export type {
 } from "./llm/index.js";
 
 /* === Decision Engine === */
-export { proposeActions, parseActions, applyGuardrails } from "./decisions/engine.js";
-export type { GuardrailResult } from "./decisions/engine.js";
+export {
+	proposeActions,
+	proposeActionsFull,
+	parseActions,
+	applyGuardrails,
+	extractFirstJsonArray,
+} from "./decisions/engine.js";
+export type { GuardrailResult, DecisionResult } from "./decisions/engine.js";
 export { scoreAction, scoreProposal, rankProposals } from "./decisions/scoring.js";
 export { DEFAULT_GUARDRAILS } from "./decisions/types.js";
 export type {
@@ -93,9 +99,19 @@ export {
 /* === Audit Logging === */
 export { AuditLogger } from "./audit/logger.js";
 export type { AuditDatabase } from "./audit/logger.js";
+export { DrizzleAuditDatabase } from "./audit/drizzle-adapter.js";
 export type { AuditRecord, AuditFilter } from "./audit/types.js";
 
 /* === Configuration === */
 export { loadConfig } from "./config/index.js";
 export { AgentConfigSchema } from "./config/types.js";
 export type { AgentConfig, AgentConfigInput } from "./config/types.js";
+
+/* === Reporting helpers (re-exports for downstream packages) === */
+export {
+	parseInsightsToMetrics,
+	parseInsightsToAdSetMetrics,
+	safeParseFloat,
+	extractConversions,
+	extractRevenue,
+} from "./tools/reporting/utils.js";

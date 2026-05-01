@@ -61,23 +61,30 @@ export function registerRunCommand(program: Command): void {
 				loadingSpinner.stop();
 				success("Agent started. Press Ctrl+C to stop.");
 
-				let tickCount = 0;
 				const tickLimit = maxTicks === 0 ? "inf" : String(maxTicks);
+				let lastReportedTick = -1;
 
-				const statusInterval = setInterval(
-					() => {
-						tickCount++;
-						const phases = [
-							"Observing metrics",
-							"Orienting analysis",
-							"Deciding actions",
-							"Acting on decisions",
-						];
-						const phase = phases[tickCount % phases.length];
-						logger.info(`Tick ${tickCount}/${tickLimit} — ${phase}...`);
-					},
-					intervalMinutes * 60 * 1000,
-				);
+				/* Poll the running session and surface real tick progress. */
+				const statusInterval = setInterval(async () => {
+					try {
+						const status = await daemon.getStatus();
+						if (status.tickCount !== lastReportedTick) {
+							lastReportedTick = status.tickCount;
+							const lastSuffix = status.lastTickAt ? ` (last ${status.lastTickAt})` : "";
+							logger.info(
+								`Tick ${status.tickCount}/${tickLimit} — state=${status.state}${lastSuffix}`,
+							);
+						}
+						if (maxTicks > 0 && Number.isFinite(maxTicks) && status.tickCount >= maxTicks) {
+							logger.info("Reached max ticks; shutting down.");
+							clearInterval(statusInterval);
+							await daemon.stop();
+							process.exit(0);
+						}
+					} catch (pollErr: unknown) {
+						logger.debug(`status poll failed: ${(pollErr as Error).message}`);
+					}
+				}, 5_000);
 
 				/** Handle graceful shutdown of the running agent. */
 				const cleanup = async (): Promise<void> => {
