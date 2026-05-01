@@ -13,7 +13,6 @@
  * Uses inquirer for interactive prompts and chalk for coloured output.
  */
 
-import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -57,78 +56,24 @@ interface AgentConfig {
 }
 
 /**
- * Result of running a shell command. Captures stdout, stderr, and the
- * exit code so callers can surface real diagnostics instead of swallowing
- * the failure mode.
+ * Lists ad accounts the access token has access to.
+ *
+ * Uses the Marketing API directly (GET /me/adaccounts) so the wizard has
+ * no Python or CLI dependency. Returns an empty array on any failure;
+ * the caller falls back to manual account-id entry.
  */
-interface ExecResult {
-	readonly ok: boolean;
-	readonly stdout: string;
-	readonly stderr: string;
-	readonly exitCode: number;
-}
-
-/**
- * Run a shell command with the supplied environment and return both stdout
- * and stderr. The Meta access token is injected via env so that the CLI
- * uses the token the user just entered, not whatever cached session may
- * already exist on disk.
- */
-function execCapture(cmd: string, env: NodeJS.ProcessEnv = process.env): ExecResult {
+async function listAdAccounts(token: string): Promise<string[]> {
+	const url = `https://graph.facebook.com/v21.0/me/adaccounts?access_token=${encodeURIComponent(token)}&fields=id,account_id,name&limit=100`;
 	try {
-		const stdout = execSync(cmd, {
-			encoding: "utf-8",
-			stdio: ["pipe", "pipe", "pipe"],
-			env,
-		}).trim();
-		return { ok: true, stdout, stderr: "", exitCode: 0 };
-	} catch (err: unknown) {
-		/* execSync throws on non-zero exit. The thrown object exposes stdout,
-		 * stderr, and status when stdio is piped, so we can surface them. */
-		const e = err as {
-			stdout?: Buffer | string;
-			stderr?: Buffer | string;
-			status?: number;
-			message?: string;
-		};
-		const stdout = (e.stdout?.toString() ?? "").trim();
-		const stderr = (e.stderr?.toString() ?? e.message ?? "").trim();
-		return { ok: false, stdout, stderr, exitCode: e.status ?? 1 };
-	}
-}
-
-/**
- * Backwards-compatible wrapper returning trimmed stdout or null on failure.
- * Prefer `execCapture` when callers need to surface stderr to the user.
- */
-function tryExec(cmd: string, env: NodeJS.ProcessEnv = process.env): string | null {
-	const r = execCapture(cmd, env);
-	return r.ok ? r.stdout : null;
-}
-
-/**
- * Verify that the `meta-ads` Python CLI is installed and on PATH.
- * Uses `--help` so we don't depend on auth being configured yet.
- */
-function checkMetaCliInstalled(): boolean {
-	const result = tryExec("meta ads --help");
-	return result !== null;
-}
-
-/**
- * List ad accounts available for the given access token.
- * Uses the canonical `ad-accounts list --output json` flag set; falls back
- * to manual entry if the CLI call fails or returns unparseable output.
- */
-function listAdAccounts(token: string): string[] {
-	const env = { ...process.env, META_ACCESS_TOKEN: token };
-	const raw = tryExec("meta ads ad-accounts list --output json --no-input", env);
-	if (!raw) return [];
-
-	try {
-		const parsed = JSON.parse(raw) as Array<{ id: string; name?: string }>;
-		if (!Array.isArray(parsed)) return [];
-		return parsed.map((a) => (a.name ? `${a.id} (${a.name})` : a.id));
+		const res = await fetch(url, { method: "GET" });
+		if (!res.ok) return [];
+		const body = (await res.json().catch(() => null)) as {
+			data?: Array<{ id?: string; account_id?: string; name?: string }>;
+		} | null;
+		if (!body?.data || !Array.isArray(body.data)) return [];
+		return body.data
+			.filter((a) => Boolean(a.id))
+			.map((a) => (a.name ? `${a.id} (${a.name})` : (a.id as string)));
 	} catch {
 		return [];
 	}
@@ -205,21 +150,10 @@ export function registerInitCommand(program: Command): void {
 		.action(async () => {
 			section("meta-ads-agent Setup Wizard");
 
-			// Step 1: Check prerequisites
-			logger.info("Checking prerequisites...");
-			const cliInstalled = checkMetaCliInstalled();
-			if (!cliInstalled) {
-				error(
-					"The `meta-ads` Python CLI was not found.\n" +
-						"Install it with: pip install meta-ads\n" +
-						"Then run: meta ads auth login",
-				);
-				process.exitCode = 1;
-				return;
-			}
-			success("meta-ads CLI detected.");
-
 			// Step 2: Meta Access Token
+			// (No Step 1 prerequisite check anymore -- the agent has no Python
+			//  or CLI runtime dependency. Token validation in Step 7 will
+			//  catch any environmental issue.)
 			const { metaAccessToken } = await inquirer.prompt<{ metaAccessToken: string }>([
 				{
 					type: "password",
@@ -232,7 +166,7 @@ export function registerInitCommand(program: Command): void {
 			]);
 
 			// Step 3: Ad Account selection
-			const accounts = listAdAccounts(metaAccessToken);
+			const accounts = await listAdAccounts(metaAccessToken);
 			let metaAdAccountId: string;
 
 			if (accounts.length > 0) {

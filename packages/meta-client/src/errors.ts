@@ -2,12 +2,10 @@
  * @module errors
  *
  * Typed error hierarchy for the Meta client package. Provides specific error
- * classes for each failure mode: rate limiting, authentication, not-found
- * resources, and CLI subprocess errors. All errors extend the base MetaError
- * class for unified catch handling.
+ * classes for each failure mode of the Marketing API: rate limiting,
+ * authentication, not-found resources, and validation. All errors extend
+ * the base MetaError class for unified catch handling.
  */
-
-import type { CliExitCode } from "./types.js";
 
 /**
  * Base error class for all Meta client errors.
@@ -65,25 +63,6 @@ export class NotFoundError extends MetaError {
 	constructor(message: string) {
 		super(message, "NOT_FOUND", 404);
 		this.name = "NotFoundError";
-	}
-}
-
-/**
- * Thrown when the `meta-ads` CLI subprocess exits with a non-zero exit code.
- * Carries the raw exit code and stderr output for debugging.
- */
-export class CliError extends MetaError {
-	/** The CLI process exit code. */
-	public readonly exitCode: CliExitCode;
-
-	/** Raw stderr output from the CLI process. */
-	public readonly stderr: string;
-
-	constructor(message: string, exitCode: CliExitCode, stderr: string) {
-		super(message, `CLI_EXIT_${exitCode}`);
-		this.name = "CliError";
-		this.exitCode = exitCode;
-		this.stderr = stderr;
 	}
 }
 

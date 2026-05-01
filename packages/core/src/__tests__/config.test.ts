@@ -6,19 +6,34 @@
  * fields, Zod schema defaults, and error handling for invalid configurations.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../config/index.js";
 
 describe("loadConfig", () => {
 	const originalEnv = { ...process.env };
+	const originalHome = process.env.HOME;
+	let tempHome: string;
 
 	beforeEach(() => {
-		/* Reset env to a clean state */
+		/* Reset env to a clean state, then point loadConfig() at a non-existent
+		 * temp file so it never reads the developer's real
+		 * ~/.meta-ads-agent/config.json. */
 		process.env = { ...originalEnv };
+		tempHome = mkdtempSync(join(tmpdir(), "meta-ads-agent-test-"));
+		process.env.META_ADS_AGENT_CONFIG_PATH = join(tempHome, "nonexistent.json");
 	});
 
 	afterEach(() => {
 		process.env = originalEnv;
+		void originalHome; /* unused after switching to META_ADS_AGENT_CONFIG_PATH override */
+		try {
+			rmSync(tempHome, { recursive: true, force: true });
+		} catch {
+			/* best effort */
+		}
 	});
 
 	it("should load config with all required fields via overrides", () => {

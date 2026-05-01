@@ -17,10 +17,19 @@ import { join } from "node:path";
 import { type AgentConfig, type AgentConfigInput, AgentConfigSchema } from "./types.js";
 
 /**
- * Default path to the optional JSON config file.
- * Located at ~/.meta-ads-agent/config.json for per-user configuration.
+ * Default path to the optional JSON config file. Resolved at call time
+ * (rather than module load) so tests can redirect HOME to a temp dir.
+ *
+ * Override via the `META_ADS_AGENT_CONFIG_PATH` env var if you need to
+ * point at a different file (used by tests to isolate from the
+ * developer's real ~/.meta-ads-agent/config.json).
  */
-const CONFIG_FILE_PATH = join(homedir(), ".meta-ads-agent", "config.json");
+function resolveConfigFilePath(): string {
+	if (process.env.META_ADS_AGENT_CONFIG_PATH) {
+		return process.env.META_ADS_AGENT_CONFIG_PATH;
+	}
+	return join(homedir(), ".meta-ads-agent", "config.json");
+}
 
 /**
  * Maps environment variable names to their corresponding config keys.
@@ -131,7 +140,7 @@ function readEnvVars(): Partial<AgentConfigInput> {
  * @throws {Error} When validation fails — message includes all Zod issue details
  */
 export function loadConfig(overrides?: Partial<AgentConfigInput>): AgentConfig {
-	const fileConfig = readConfigFile(CONFIG_FILE_PATH);
+	const fileConfig = readConfigFile(resolveConfigFilePath());
 	const envConfig = readEnvVars();
 
 	const merged = {

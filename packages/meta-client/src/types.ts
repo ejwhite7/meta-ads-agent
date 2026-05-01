@@ -1,15 +1,11 @@
 /**
  * @module types
  *
- * Core TypeScript type definitions for all Meta Marketing API entities,
- * CLI configuration, and shared data structures used across the meta-client
- * package. These types provide compile-time safety for campaign management,
- * audience targeting, insights reporting, and batch operations.
+ * Core TypeScript type definitions for all Meta Marketing API entities and
+ * shared data structures used across the meta-client package. Provides
+ * compile-time safety for campaign management, audience targeting, insights
+ * reporting, and batch operations.
  */
-
-// ---------------------------------------------------------------------------
-// CLI Exit Codes
-// ---------------------------------------------------------------------------
 
 /**
  * Exit codes returned by the `meta-ads` Python CLI.
