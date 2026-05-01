@@ -37,17 +37,30 @@ export const listCampaignsTool = createTool({
 		const filterStatus = status ?? "ALL";
 
 		try {
-			const filterParams: Record<string, unknown> =
-				filterStatus !== "ALL" ? { status: filterStatus } : {};
+			/* The MetaClient.campaigns.list signature accepts only an adAccountId.
+			 * We filter the result client-side rather than threading status into
+			 * the underlying CLI call (which doesn't accept that flag). */
+			const rawCampaigns = await context.metaClient.campaigns.list(context.adAccountId);
+			const campaigns =
+				filterStatus === "ALL"
+					? rawCampaigns
+					: rawCampaigns.filter((c: { status?: string }) => c.status === filterStatus);
 
-			const campaigns = await context.metaClient.campaigns.list(context.adAccountId, filterParams);
-
-			await context.auditLogger.record({
-				toolName: "list_campaigns",
-				toolParams: { adAccountId: context.adAccountId, status: filterStatus },
-				outcome: `Retrieved ${campaigns.length} campaign(s) with status filter '${filterStatus}'`,
-				timestamp: new Date().toISOString(),
-			});
+			if (context.auditLogger) {
+				await context.auditLogger.logDecision({
+					sessionId: context.sessionId,
+					adAccountId: context.adAccountId,
+					toolName: "list_campaigns",
+					params: { adAccountId: context.adAccountId, status: filterStatus },
+					reasoning: "Routine list_campaigns invocation",
+					expectedOutcome: `Retrieved ${campaigns.length} campaign(s) with status='${filterStatus}'`,
+					score: 0,
+					riskLevel: "low",
+					success: true,
+					resultData: { count: campaigns.length },
+					errorMessage: null,
+				});
+			}
 
 			return {
 				success: true,

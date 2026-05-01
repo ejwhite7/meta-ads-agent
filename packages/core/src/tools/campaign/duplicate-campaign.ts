@@ -45,7 +45,7 @@ export const duplicateCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 1: Fetch the source campaign
 			 * ----------------------------------------------------------------*/
-			const source = await context.metaClient.campaigns.show(sourceCampaignId);
+			const source = await context.metaClient.campaigns.get(sourceCampaignId);
 
 			if (!source) {
 				return {
@@ -97,16 +97,27 @@ export const duplicateCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 4: Audit log
 			 * ----------------------------------------------------------------*/
-			await context.auditLogger.record({
-				toolName: "duplicate_campaign",
-				toolParams: { sourceCampaignId, newName: trimmedName, reason },
-				outcome:
-					`Duplicated campaign '${source.name}' (${sourceCampaignId}) -> ` +
-					`'${trimmedName}' (${copy.id}). Objective: ${source.objective}, ` +
-					`budget: $${source.dailyBudget.toFixed(2)}/day. Copy is PAUSED. ` +
-					`Reason: ${reason}`,
-				timestamp: new Date().toISOString(),
-			});
+			if (context.auditLogger) {
+				await context.auditLogger.logDecision({
+					sessionId: context.sessionId,
+					adAccountId: context.adAccountId,
+					toolName: "duplicate_campaign",
+					params: { sourceCampaignId, newName: trimmedName, reason },
+					reasoning: reason,
+					expectedOutcome:
+						`Duplicated '${source.name}' (${sourceCampaignId}) -> ` +
+						`'${trimmedName}' (${copy.id}); copy starts PAUSED.`,
+					score: 0,
+					riskLevel: "low",
+					success: true,
+					resultData: {
+						newCampaignId: copy.id,
+						objective: source.objective,
+						dailyBudget: source.dailyBudget,
+					},
+					errorMessage: null,
+				});
+			}
 
 			return {
 				success: true,

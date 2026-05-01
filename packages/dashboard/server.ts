@@ -18,6 +18,8 @@
  * live daemon communication.
  */
 
+import { Buffer } from "node:buffer";
+import { timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import {
 	agentDecisions,
@@ -28,6 +30,21 @@ import {
 import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+
+/**
+ * Constant-time string comparison to prevent timing attacks on the API key.
+ * Returns false for any length mismatch without leaking the expected length.
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+	const aBuf = Buffer.from(a, "utf8");
+	const bBuf = Buffer.from(b, "utf8");
+	if (aBuf.length !== bBuf.length) {
+		/* Still run a comparison to keep timing constant-ish. */
+		timingSafeEqual(aBuf, aBuf);
+		return false;
+	}
+	return timingSafeEqual(aBuf, bBuf);
+}
 
 /**
  * Create the database connection using environment config or SQLite defaults.
@@ -46,7 +63,9 @@ const db = dbConnection.db;
  * @returns The result from the daemon, or null if the daemon is unreachable.
  */
 async function sendIpc(method: string, params: unknown = {}): Promise<unknown> {
-	const ipcPath = process.env.AGENT_SOCKET_PATH ?? `${process.env.HOME}/.meta-ads-agent/agent.sock`;
+	const { homedir } = await import("node:os");
+	const { join } = await import("node:path");
+	const ipcPath = process.env.AGENT_SOCKET_PATH ?? join(homedir(), ".meta-ads-agent", "agent.sock");
 	const { connect } = await import("node:net");
 	const { randomUUID } = await import("node:crypto");
 	const requestId = randomUUID();
@@ -82,40 +101,64 @@ async function sendIpc(method: string, params: unknown = {}): Promise<unknown> {
 	});
 }
 
-const app = new Hono();
+/* ----- Startup auth configuration: fail closed ----- */
 
-// CORS -- restrict to dashboard origin
-const corsOrigin = process.env.DASHBOARD_CORS_ORIGIN ?? "http://localhost:5173";
+const authDisabled = process.env.DASHBOARD_AUTH === "none";
+const apiKey = process.env.DASHBOARD_API_KEY;
+const isProduction = process.env.NODE_ENV === "production";
+
+if (!authDisabled && !apiKey) {
+	console.error(
+		"[dashboard] FATAL: DASHBOARD_API_KEY is not set. " +
+			"Set DASHBOARD_API_KEY to a strong secret, or set DASHBOARD_AUTH=none to explicitly " +
+			"disable authentication (development only).",
+	);
+	process.exit(1);
+}
+
+/* CORS -- restrict to dashboard origin. In production, refuse the localhost default. */
+const corsOriginEnv = process.env.DASHBOARD_CORS_ORIGIN;
+if (isProduction && !corsOriginEnv) {
+	console.error(
+		"[dashboard] FATAL: DASHBOARD_CORS_ORIGIN must be set explicitly when NODE_ENV=production.",
+	);
+	process.exit(1);
+}
+const corsOrigin = corsOriginEnv ?? "http://localhost:5173";
+
+const app = new Hono();
 app.use("*", cors({ origin: corsOrigin }));
 
 /**
  * API key authentication middleware.
  *
- * Validates the X-API-Key header against the DASHBOARD_API_KEY
- * environment variable. Returns 401 if the key is missing or invalid.
- * Set DASHBOARD_AUTH=none to explicitly disable authentication.
+ * Validates the X-API-Key header against DASHBOARD_API_KEY using a
+ * constant-time comparison. Fails closed -- if no key is configured
+ * and DASHBOARD_AUTH is not 'none', the server refused to start above.
  */
 app.use("/api/*", async (c, next) => {
-	const authDisabled = process.env.DASHBOARD_AUTH === "none";
 	if (authDisabled) {
 		await next();
 		return;
 	}
 
-	const key = process.env.DASHBOARD_API_KEY;
-	if (!key) {
-		console.warn(
-			"[dashboard] DASHBOARD_API_KEY not set -- set DASHBOARD_AUTH=none to disable auth",
-		);
-	}
-
-	const header = c.req.header("X-Api-Key");
-	if (key && header !== key) {
+	const header = c.req.header("X-Api-Key") ?? "";
+	/* apiKey is non-null here because of the startup check. */
+	if (!constantTimeEqual(header, apiKey as string)) {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
 
 	await next();
 });
+
+/**
+ * Helper to clamp pagination input to a safe range.
+ */
+function clampInt(raw: string | undefined, def: number, min: number, max: number): number {
+	const n = Number.parseInt(raw ?? "", 10);
+	if (Number.isNaN(n)) return def;
+	return Math.max(min, Math.min(max, n));
+}
 
 /**
  * GET /api/status -- Return the current agent session status.
@@ -159,8 +202,8 @@ app.get("/api/status", async (c) => {
  *   offset  Pagination offset (default 0)
  */
 app.get("/api/decisions", async (c) => {
-	const limit = Number.parseInt(c.req.query("limit") ?? "100", 10);
-	const offset = Number.parseInt(c.req.query("offset") ?? "0", 10);
+	const limit = clampInt(c.req.query("limit"), 100, 1, 500);
+	const offset = clampInt(c.req.query("offset"), 0, 0, 1_000_000);
 
 	const rows = await db
 		.select()

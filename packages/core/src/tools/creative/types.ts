@@ -100,7 +100,7 @@ export interface InsightsResultLike {
  * prompts) and a MetaClient (for creating/reading creatives and insights).
  * This interface extends the base ToolContext with those dependencies.
  */
-export interface CreativeToolContext extends ToolContext {
+export interface CreativeToolContext extends Omit<ToolContext, "metaClient" | "llmProvider"> {
 	/** LLM provider for generating ad copy and image prompts. */
 	readonly llmProvider: LLMProvider;
 

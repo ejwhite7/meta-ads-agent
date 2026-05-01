@@ -83,6 +83,25 @@ export class AgentSession {
 			maxAttempts: config.config.maxRetries,
 		});
 		this.maxConsecutiveFailures = config.config.maxRetries;
+
+		/* Halt the agent when the audit log has failed too many times in a row.
+		 * The audit trail is the system of record per CLAUDE.md §6 -- if we
+		 * cannot persist decisions, we must not continue making them. */
+		config.auditLogger.onFailure((record, err) => {
+			const failures = config.auditLogger.getConsecutiveFailures();
+			if (failures >= 3 && this.state !== "error" && this.state !== "stopped") {
+				console.error(
+					`[AgentSession] Halting due to ${failures} consecutive audit-log failures. ` +
+						`Last error: ${err.message}. Last record toolName=${record.toolName}.`,
+				);
+				this.state = "error";
+				this.lastError = `Audit log unavailable: ${err.message}`;
+				if (this.tickTimer) {
+					clearTimeout(this.tickTimer);
+					this.tickTimer = null;
+				}
+			}
+		});
 	}
 
 	/**
@@ -192,6 +211,26 @@ export class AgentSession {
 				goals: this.sessionConfig.goals,
 				guardrails: this.sessionConfig.guardrails,
 			};
+
+			/* Persist any pending (human-approval-required) actions to the audit
+			 * log so the dashboard and operators can see what the agent wanted
+			 * to do. They are recorded with success=false and a distinctive
+			 * tool name so they are easy to filter on. */
+			for (const pending of loopResult.pendingActions ?? []) {
+				await this.sessionConfig.auditLogger.logDecision({
+					sessionId: this.sessionId,
+					adAccountId: this.sessionConfig.config.metaAdAccountId,
+					toolName: pending.toolName,
+					params: pending.params,
+					reasoning: pending.reason,
+					expectedOutcome: "PENDING_HUMAN_APPROVAL",
+					score: 0,
+					riskLevel: "high",
+					success: false,
+					resultData: { pendingId: pending.id },
+					errorMessage: "Awaiting human approval",
+				});
+			}
 
 			for (const proposal of loopResult.proposals) {
 				try {

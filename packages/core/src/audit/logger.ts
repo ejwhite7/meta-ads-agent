@@ -26,6 +26,15 @@ export interface AuditDatabase {
 }
 
 /**
+ * Listener invoked when audit-log persistence fails.
+ *
+ * Receives the failed record and the underlying error so callers
+ * (e.g. AgentSession) can decide whether to halt the agent or
+ * surface the failure to operators.
+ */
+export type AuditFailureListener = (record: AuditRecord, error: Error) => void;
+
+/**
  * Append-only audit logger that records every agent decision.
  *
  * Usage:
@@ -39,6 +48,12 @@ export class AuditLogger {
 	/** Database backend for persisting audit records */
 	private readonly db: AuditDatabase;
 
+	/** Optional listener notified on every persistence failure. */
+	private failureListener: AuditFailureListener | null = null;
+
+	/** Number of consecutive insert failures since the last success. */
+	private consecutiveFailures = 0;
+
 	/**
 	 * Creates a new AuditLogger instance.
 	 *
@@ -49,11 +64,28 @@ export class AuditLogger {
 	}
 
 	/**
+	 * Registers a listener invoked whenever an audit insert fails.
+	 * The agent session uses this to halt on prolonged audit-log outages.
+	 */
+	onFailure(listener: AuditFailureListener): void {
+		this.failureListener = listener;
+	}
+
+	/**
+	 * Returns the number of consecutive insert failures since the last success.
+	 * Resets to 0 on the next successful write.
+	 */
+	getConsecutiveFailures(): number {
+		return this.consecutiveFailures;
+	}
+
+	/**
 	 * Logs a single agent decision to the audit trail.
 	 *
 	 * Automatically assigns an ID and timestamp if not already present.
-	 * This method never throws — logging failures are caught and written
-	 * to stderr to avoid disrupting the agent loop.
+	 * This method never throws -- logging failures are routed to stderr
+	 * AND the registered failure listener (if any) so the agent loop
+	 * can react (e.g. pause after N consecutive failures).
 	 *
 	 * @param record - The audit record to persist
 	 */
@@ -66,9 +98,18 @@ export class AuditLogger {
 
 		try {
 			await this.db.insertDecision(enriched);
+			this.consecutiveFailures = 0;
 		} catch (err: unknown) {
-			const message = err instanceof Error ? err.message : String(err);
-			console.error(`[AuditLogger] Failed to log decision: ${message}`);
+			const error = err instanceof Error ? err : new Error(String(err));
+			this.consecutiveFailures++;
+			console.error(`[AuditLogger] Failed to log decision: ${error.message}`);
+			if (this.failureListener) {
+				try {
+					this.failureListener(enriched, error);
+				} catch {
+					/* listener errors must never escape */
+				}
+			}
 		}
 	}
 

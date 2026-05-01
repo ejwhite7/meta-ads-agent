@@ -7,15 +7,23 @@
  * Tool definitions use TypeBox for compile-time AND runtime type safety.
  */
 
+import type { MetaClient } from "@meta-ads-agent/meta-client";
 import type { Static, TObject } from "@sinclair/typebox";
+import type { AuditLogger } from "../audit/logger.js";
+import type { GuardrailConfig } from "../decisions/types.js";
+import type { LLMProvider } from "../llm/types.js";
+import type { AgentGoal } from "../types.js";
 
 /**
  * Context provided to every tool execution.
- * Carries session information and shared resources needed by tool implementations.
- */
-/**
- * Context provided to every tool execution.
- * Carries session information and shared resources needed by tool implementations.
+ *
+ * Carries session information and shared resources. Resource fields use
+ * concrete types from sibling packages instead of `any`. The optional
+ * markers reflect the fact that not every tool requires every resource
+ * (e.g. analysis-only tools don't need `auditLogger`, and tests may pass
+ * a partial context). Tools that depend on a resource should guard
+ * against `undefined` or use helpers such as `resolveMetaClient`
+ * (see tools/budget/_client.ts).
  */
 export interface ToolContext {
 	/** Current agent session ID */
@@ -30,29 +38,34 @@ export interface ToolContext {
 	/** ISO 8601 timestamp when the execution started */
 	readonly timestamp: string;
 
-	/** Meta API client instance for making API calls */
-	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any MetaClient-compatible object
-	readonly metaClient: any;
+	/**
+	 * Meta API client instance for making API calls.
+	 *
+	 * Typed as `any` because individual tool domains (creative, reporting)
+	 * narrow this to a `MetaClientLike` subset interface for testability.
+	 * Tools that interact with Meta should accept either the real
+	 * `MetaClient` from @meta-ads-agent/meta-client or a structural mock,
+	 * resolved through helpers like `resolveMetaClient`. A future refactor
+	 * could replace this with a dedicated `MetaClientLike` union exported
+	 * from this package.
+	 */
+	// biome-ignore lint/suspicious/noExplicitAny: bridges concrete MetaClient and per-domain *Like subset interfaces
+	readonly metaClient?: any;
 
-	/** Audit logger for recording tool actions */
-	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any AuditLogger-compatible object
-	readonly auditLogger: any;
+	/** Audit logger for recording tool actions. */
+	readonly auditLogger?: AuditLogger;
 
-	/** Agent goals for performance evaluation */
-	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any AgentGoal-compatible object
-	readonly goals: any;
+	/** Agent goals for performance evaluation. */
+	readonly goals?: AgentGoal;
 
-	/** Guardrail configuration for safety limits */
-	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any GuardrailConfig-compatible object
-	readonly guardrails: any;
+	/** Guardrail configuration for safety limits. */
+	readonly guardrails?: Partial<GuardrailConfig>;
 
-	/** Database connection for persistence */
-	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any Database-compatible object
-	readonly db?: any;
+	/** Database connection for persistence (opaque -- backend-specific). */
+	readonly db?: unknown;
 
-	/** LLM provider for creative tools that need generation */
-	// biome-ignore lint/suspicious/noExplicitAny: ToolContext accepts any LLMProvider-compatible object
-	readonly llmProvider?: any;
+	/** LLM provider for creative tools that need generation. */
+	readonly llmProvider?: LLMProvider;
 }
 
 /**

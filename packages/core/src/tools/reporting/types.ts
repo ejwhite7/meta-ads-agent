@@ -24,7 +24,7 @@ import type { ToolContext } from "../types.js";
  * from `@meta-ads-agent/meta-client`, providing access to campaigns,
  * insights, ad sets, and other API resource groups.
  */
-export interface ReportingToolContext extends ToolContext {
+export interface ReportingToolContext extends Omit<ToolContext, "metaClient"> {
 	/**
 	 * MetaClient instance for querying the Meta Ads API.
 	 * Must be initialized (call `metaClient.initialize()`) before use.

@@ -80,12 +80,17 @@ function createTodayInsight(overrides: Partial<InsightsResultLike> = {}): Insigh
 	};
 }
 
+/**
+ * NOTE: daily_budget is set well above today's $100 spend so the
+ * BUDGET_EXHAUSTION detector does not fire incidentally on the "normal
+ * range" baseline test (today $100 / budget would be 100% otherwise).
+ */
 const activeCampaign: CampaignInfo = {
 	id: "campaign_1",
 	name: "Test Campaign",
 	status: "ACTIVE",
 	objective: "OUTCOME_SALES",
-	daily_budget: "10000",
+	daily_budget: "50000",
 };
 
 describe("detectAnomalies", () => {
@@ -230,8 +235,11 @@ describe("detectAnomalies", () => {
 
 	describe("BUDGET_EXHAUSTION detection", () => {
 		it("should detect budget exhaustion when >95% spent before 6pm at medium sensitivity", async () => {
-			/* daily_budget = 10000 cents = $100. Today spend = $98 (98%) */
-			/* We need to mock the current hour to be before 6pm */
+			/* Override the campaign's daily_budget to $100 (10000 cents) for this test
+			 * so today's spend of $98 hits the 98% exhaustion threshold. */
+			const exhaustionCampaign: CampaignInfo = { ...activeCampaign, daily_budget: "10000" };
+
+			/* Mock the current hour to be before 6pm */
 			const originalDate = Date;
 			const mockDate = class extends Date {
 				constructor() {
@@ -244,7 +252,7 @@ describe("detectAnomalies", () => {
 			vi.stubGlobal("Date", mockDate);
 
 			const ctx = createMockContext({
-				campaigns: [activeCampaign],
+				campaigns: [exhaustionCampaign],
 				todayInsights: [createTodayInsight({ spend: "98.00" })],
 				baselineInsights: [createBaselineInsight()],
 			});

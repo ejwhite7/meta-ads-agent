@@ -13,6 +13,7 @@ import type { GuardrailConfig } from "../../decisions/types.js";
 import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
+import { resolveMetaClient } from "./_client.js";
 
 /**
  * TypeBox schema for reallocate_budget tool parameters.
@@ -56,7 +57,7 @@ type ReallocateBudgetInput = Static<typeof ReallocateBudgetParams>;
  * @returns Frozen tool definition ready for registry.
  */
 export function createReallocateBudgetTool(
-	client: MetaClient,
+	client: MetaClient | null = null,
 	guardrails: GuardrailConfig = DEFAULT_GUARDRAILS,
 ) {
 	return createTool({
@@ -67,12 +68,16 @@ export function createReallocateBudgetTool(
 		parameters: ReallocateBudgetParams,
 
 		async execute(params: ReallocateBudgetInput, context: ToolContext): Promise<ToolResult> {
+			const resolved = resolveMetaClient(client, context);
+			if (resolved.error) return resolved.error;
+			const c = resolved.client;
+
 			const { fromCampaignId, toCampaignId, amount, reason } = params;
 
 			/* Fetch current budgets for both campaigns */
 			const [sourceCampaign, destCampaign] = await Promise.all([
-				client.campaigns.get(fromCampaignId),
-				client.campaigns.get(toCampaignId),
+				c.campaigns.get(fromCampaignId),
+				c.campaigns.get(toCampaignId),
 			]);
 
 			const sourceBudget = Number.parseInt(sourceCampaign.daily_budget ?? "0", 10) / 100;
@@ -153,21 +158,21 @@ export function createReallocateBudgetTool(
 
 			/* Step 1: Reduce source campaign budget */
 			const newSourceCents = Math.round(newSourceBudget * 100).toString();
-			await client.campaigns.update(fromCampaignId, {
+			await c.campaigns.update(fromCampaignId, {
 				daily_budget: newSourceCents,
 			});
 
 			/* Step 2: Increase destination campaign budget (with rollback on failure) */
 			try {
 				const newDestCents = Math.round(newDestBudget * 100).toString();
-				await client.campaigns.update(toCampaignId, {
+				await c.campaigns.update(toCampaignId, {
 					daily_budget: newDestCents,
 				});
 			} catch (destError: unknown) {
 				/* Rollback: restore source campaign to original budget */
 				const originalSourceCents = Math.round(sourceBudget * 100).toString();
 				try {
-					await client.campaigns.update(fromCampaignId, {
+					await c.campaigns.update(fromCampaignId, {
 						daily_budget: originalSourceCents,
 					});
 				} catch (rollbackError: unknown) {

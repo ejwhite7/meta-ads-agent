@@ -55,6 +55,14 @@ export interface CampaignMetrics {
 
 	/** ISO 8601 date string for this metrics snapshot (e.g., "2024-01-15") */
 	readonly date: string;
+
+	/**
+	 * Current daily budget in account currency, when known. Populated by
+	 * `fetchMetrics` so the decision engine can compare proposed budgets
+	 * to the live setting (rather than falling back to spend, which under-
+	 * paces every newly-launched campaign).
+	 */
+	readonly dailyBudget?: number;
 }
 
 /**

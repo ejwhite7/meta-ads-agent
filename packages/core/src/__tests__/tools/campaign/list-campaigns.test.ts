@@ -38,7 +38,11 @@ function createMockContext(
 			ads: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
 			splitTests: { create: vi.fn(), get: vi.fn() },
 		},
-		auditLogger: { record: vi.fn().mockResolvedValue(undefined) },
+		auditLogger: {
+			logDecision: vi.fn(),
+			onFailure: vi.fn(),
+			getConsecutiveFailures: vi.fn().mockReturnValue(0).mockResolvedValue(undefined),
+		},
 		goals: { roasTarget: 4.0, cpaCap: 25.0, dailyBudgetLimit: 1000, riskLevel: "moderate" },
 		guardrails: {
 			minDailyBudget: 5,
@@ -102,18 +106,20 @@ describe("listCampaignsTool", () => {
 		expect(data.campaigns).toHaveLength(2);
 		expect(data.count).toBe(2);
 		expect(data.adAccountId).toBe("act_123456");
-		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456", {});
+		/* The tool now calls list(adAccountId) with no second arg and filters
+		 * client-side; the underlying CLI doesn't accept a status filter. */
+		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456");
 	});
 
-	it("passes status filter to MetaClient when not ALL", async () => {
-		const ctx = createMockContext({ campaigns: [sampleCampaigns[0]] });
+	it("filters status client-side when not ALL", async () => {
+		const ctx = createMockContext({ campaigns: sampleCampaigns });
 
 		const result = await listCampaignsTool.execute({ status: "ACTIVE" }, ctx);
 
 		expect(result.success).toBe(true);
-		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456", {
-			status: "ACTIVE",
-		});
+		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456");
+		const data = result.data as { campaigns: Campaign[] };
+		expect(data.campaigns.every((c) => c.status === "ACTIVE")).toBe(true);
 	});
 
 	it("defaults to ALL when status is omitted", async () => {
@@ -122,7 +128,7 @@ describe("listCampaignsTool", () => {
 		const result = await listCampaignsTool.execute({}, ctx);
 
 		expect(result.success).toBe(true);
-		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456", {});
+		expect(ctx.metaClient.campaigns.list).toHaveBeenCalledWith("act_123456");
 	});
 
 	it("records an audit entry on success", async () => {
@@ -130,10 +136,10 @@ describe("listCampaignsTool", () => {
 
 		await listCampaignsTool.execute({ status: "ALL" }, ctx);
 
-		expect(ctx.auditLogger.record).toHaveBeenCalledTimes(1);
-		const entry = (ctx.auditLogger.record as ReturnType<typeof vi.fn>).mock.calls[0][0];
+		expect(ctx.auditLogger.logDecision).toHaveBeenCalledTimes(1);
+		const entry = (ctx.auditLogger.logDecision as ReturnType<typeof vi.fn>).mock.calls[0][0];
 		expect(entry.toolName).toBe("list_campaigns");
-		expect(entry.outcome).toContain("2 campaign(s)");
+		expect(entry.expectedOutcome).toContain("2 campaign(s)");
 	});
 
 	it("returns an empty list gracefully", async () => {

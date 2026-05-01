@@ -39,7 +39,7 @@ export const pauseCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 1: Validate the campaign exists
 			 * ----------------------------------------------------------------*/
-			const campaign = await context.metaClient.campaigns.show(campaignId);
+			const campaign = await context.metaClient.campaigns.get(campaignId);
 
 			if (!campaign) {
 				return {
@@ -55,12 +55,21 @@ export const pauseCampaignTool = createTool({
 			 * Step 2: Check if already paused — no-op with informational result
 			 * ----------------------------------------------------------------*/
 			if (campaign.status === "PAUSED") {
-				await context.auditLogger.record({
-					toolName: "pause_campaign",
-					toolParams: { campaignId, reason },
-					outcome: `Campaign ${campaignId} ('${campaign.name}') is already paused — no action taken`,
-					timestamp: new Date().toISOString(),
-				});
+				if (context.auditLogger) {
+					await context.auditLogger.logDecision({
+						sessionId: context.sessionId,
+						adAccountId: context.adAccountId,
+						toolName: "pause_campaign",
+						params: { campaignId, reason },
+						reasoning: reason,
+						expectedOutcome: "already_paused",
+						score: 0,
+						riskLevel: "low",
+						success: true,
+						resultData: { previousStatus: "PAUSED", action: "none" },
+						errorMessage: null,
+					});
+				}
 
 				return {
 					success: true,
@@ -86,12 +95,25 @@ export const pauseCampaignTool = createTool({
 			/* ------------------------------------------------------------------
 			 * Step 4: Record in audit log
 			 * ----------------------------------------------------------------*/
-			await context.auditLogger.record({
-				toolName: "pause_campaign",
-				toolParams: { campaignId, reason },
-				outcome: `Paused campaign ${campaignId} ('${campaign.name}'). Previous status: ${campaign.status}. Reason: ${reason}`,
-				timestamp: new Date().toISOString(),
-			});
+			if (context.auditLogger) {
+				await context.auditLogger.logDecision({
+					sessionId: context.sessionId,
+					adAccountId: context.adAccountId,
+					toolName: "pause_campaign",
+					params: { campaignId, reason },
+					reasoning: reason,
+					expectedOutcome: `Paused campaign ${campaignId} ('${campaign.name}')`,
+					score: 0,
+					riskLevel: "low",
+					success: true,
+					resultData: {
+						previousStatus: campaign.status,
+						newStatus: "PAUSED",
+						campaignName: campaign.name,
+					},
+					errorMessage: null,
+				});
+			}
 
 			return {
 				success: true,

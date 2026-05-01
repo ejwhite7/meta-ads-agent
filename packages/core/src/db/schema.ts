@@ -12,7 +12,7 @@
  * equivalents when the Postgres driver is used.
  */
 
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /**
  * Agent sessions table.
@@ -59,46 +59,58 @@ export const agentSessions = sqliteTable("agent_sessions", {
  * complete, tamper-evident history of all agent actions for compliance,
  * debugging, and performance analysis.
  */
-export const agentDecisions = sqliteTable("agent_decisions", {
-	/** Unique decision identifier (UUID v4) */
-	id: text("id").primaryKey(),
+export const agentDecisions = sqliteTable(
+	"agent_decisions",
+	{
+		/** Unique decision identifier (UUID v4) */
+		id: text("id").primaryKey(),
 
-	/** Session ID that produced this decision */
-	sessionId: text("session_id").notNull(),
+		/** Session ID that produced this decision */
+		sessionId: text("session_id").notNull(),
 
-	/** Meta ad account ID this decision applies to */
-	adAccountId: text("ad_account_id").notNull(),
+		/** Meta ad account ID this decision applies to */
+		adAccountId: text("ad_account_id").notNull(),
 
-	/** Name of the tool that was invoked */
-	toolName: text("tool_name").notNull(),
+		/** Name of the tool that was invoked */
+		toolName: text("tool_name").notNull(),
 
-	/** JSON-serialized parameters passed to the tool */
-	params: text("params").notNull(),
+		/** JSON-serialized parameters passed to the tool */
+		params: text("params").notNull(),
 
-	/** LLM reasoning that led to this decision */
-	reasoning: text("reasoning").notNull(),
+		/** LLM reasoning that led to this decision */
+		reasoning: text("reasoning").notNull(),
 
-	/** Expected outcome described by the LLM */
-	expectedOutcome: text("expected_outcome").notNull(),
+		/** Expected outcome described by the LLM */
+		expectedOutcome: text("expected_outcome").notNull(),
 
-	/** Computed score from the decision engine */
-	score: real("score").notNull(),
+		/** Computed score from the decision engine */
+		score: real("score").notNull(),
 
-	/** Risk level assigned by the decision engine */
-	riskLevel: text("risk_level", { enum: ["low", "medium", "high"] }).notNull(),
+		/** Risk level assigned by the decision engine */
+		riskLevel: text("risk_level", { enum: ["low", "medium", "high"] }).notNull(),
 
-	/** Whether the tool execution succeeded */
-	success: integer("success", { mode: "boolean" }).notNull(),
+		/** Whether the tool execution succeeded */
+		success: integer("success", { mode: "boolean" }).notNull(),
 
-	/** JSON-serialized tool execution result data */
-	resultData: text("result_data"),
+		/** JSON-serialized tool execution result data */
+		resultData: text("result_data"),
 
-	/** Error message if the tool execution failed */
-	errorMessage: text("error_message"),
+		/** Error message if the tool execution failed */
+		errorMessage: text("error_message"),
 
-	/** ISO 8601 timestamp when the decision was made */
-	timestamp: text("timestamp").notNull(),
-});
+		/** ISO 8601 timestamp when the decision was made */
+		timestamp: text("timestamp").notNull(),
+	},
+	(t) => ({
+		/* Hot query paths from AgentSession (filter by session) and from the
+		 * dashboard (recent-first ordering). Without these the audit table
+		 * goes O(n) on every read once it accumulates real data. */
+		idxTimestamp: index("idx_agent_decisions_timestamp").on(t.timestamp),
+		idxSession: index("idx_agent_decisions_session").on(t.sessionId),
+		idxAdAccount: index("idx_agent_decisions_account").on(t.adAccountId),
+		idxToolName: index("idx_agent_decisions_tool").on(t.toolName),
+	}),
+);
 
 /**
  * Campaign snapshots table.
@@ -107,43 +119,50 @@ export const agentDecisions = sqliteTable("agent_decisions", {
  * and lookback comparisons. A new snapshot is stored for each campaign
  * on every agent tick.
  */
-export const campaignSnapshots = sqliteTable("campaign_snapshots", {
-	/** Auto-incrementing primary key */
-	id: integer("id").primaryKey({ autoIncrement: true }),
+export const campaignSnapshots = sqliteTable(
+	"campaign_snapshots",
+	{
+		/** Auto-incrementing primary key */
+		id: integer("id").primaryKey({ autoIncrement: true }),
 
-	/** Meta campaign ID */
-	campaignId: text("campaign_id").notNull(),
+		/** Meta campaign ID */
+		campaignId: text("campaign_id").notNull(),
 
-	/** Meta ad account ID */
-	adAccountId: text("ad_account_id").notNull(),
+		/** Meta ad account ID */
+		adAccountId: text("ad_account_id").notNull(),
 
-	/** Total impressions */
-	impressions: integer("impressions").notNull(),
+		/** Total impressions */
+		impressions: integer("impressions").notNull(),
 
-	/** Total clicks */
-	clicks: integer("clicks").notNull(),
+		/** Total clicks */
+		clicks: integer("clicks").notNull(),
 
-	/** Total spend in account currency */
-	spend: real("spend").notNull(),
+		/** Total spend in account currency */
+		spend: real("spend").notNull(),
 
-	/** Total conversions */
-	conversions: integer("conversions").notNull(),
+		/** Total conversions */
+		conversions: integer("conversions").notNull(),
 
-	/** Return on ad spend */
-	roas: real("roas").notNull(),
+		/** Return on ad spend */
+		roas: real("roas").notNull(),
 
-	/** Cost per acquisition */
-	cpa: real("cpa").notNull(),
+		/** Cost per acquisition */
+		cpa: real("cpa").notNull(),
 
-	/** Click-through rate */
-	ctr: real("ctr").notNull(),
+		/** Click-through rate */
+		ctr: real("ctr").notNull(),
 
-	/** ISO 8601 date for this snapshot */
-	date: text("date").notNull(),
+		/** ISO 8601 date for this snapshot */
+		date: text("date").notNull(),
 
-	/** ISO 8601 timestamp when the snapshot was recorded */
-	recordedAt: text("recorded_at").notNull(),
-});
+		/** ISO 8601 timestamp when the snapshot was recorded */
+		recordedAt: text("recorded_at").notNull(),
+	},
+	(t) => ({
+		/* Trend analysis queries always filter by (campaignId, date). */
+		idxCampaignDate: index("idx_campaign_snapshots_campaign_date").on(t.campaignId, t.date),
+	}),
+);
 
 /**
  * Agent configuration table.

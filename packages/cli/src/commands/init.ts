@@ -3,13 +3,12 @@
  *
  * Interactive setup wizard that walks the user through initial configuration:
  *   1. Verify Python and the `meta-ads` CLI are installed.
- *      - If not found, warn the user and offer to continue in simulation mode.
  *   2. Collect META_ACCESS_TOKEN (with a link to Meta Business Manager).
  *   3. Discover available ad accounts and let the user pick one.
  *   4. Choose an LLM provider (Claude or OpenAI) and enter the API key.
  *   5. Set agent goals: ROAS target, CPA cap, daily budget limit, risk level.
  *   6. Persist the config to ~/.meta-ads-agent/config.json.
- *   7. Validate the token with `meta auth status` (if CLI available).
+ *   7. Validate the token with `meta ads auth whoami`.
  *
  * Uses inquirer for interactive prompts and chalk for coloured output.
  */
@@ -20,7 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Command } from "commander";
 import inquirer from "inquirer";
-import { error, section, success, warn } from "../utils/display.js";
+import { error, section, success } from "../utils/display.js";
 import { logger } from "../utils/logger.js";
 
 /** Filesystem path to the configuration directory. */
@@ -36,6 +35,11 @@ type LLMProvider = "claude" | "openai";
 
 /**
  * Shape of the persisted configuration file.
+ *
+ * Field names MUST match `AgentConfigSchema` in @meta-ads-agent/core.
+ * Goal-related guardrail fields are stored under top-level keys (no
+ * `agent.` nesting) because the loader merges file contents directly
+ * with environment variables and validates a flat schema.
  */
 interface AgentConfig {
 	metaAccessToken: string;
@@ -43,45 +47,55 @@ interface AgentConfig {
 	llmProvider: LLMProvider;
 	anthropicApiKey?: string;
 	openaiApiKey?: string;
-	simulationMode: boolean;
-	agent: {
-		targetRoas: number;
-		cpaCap: number;
-		minDailyBudget: number;
-		maxBudgetScaleFactor: number;
-		requireApprovalAbove: number;
-	};
+	/* Goal/guardrail fields (consumed by AgentSession at startup). */
+	roasTarget: number;
+	cpaCap: number;
+	dailyBudgetLimit: number;
+	minDailyBudget: number;
+	maxBudgetScaleFactor: number;
+	requireApprovalAbove: number;
 }
 
 /**
- * Run a shell command and return its trimmed stdout, or null on failure.
+ * Run a shell command with the supplied environment and return its trimmed
+ * stdout, or null on failure. The Meta access token is injected via env so
+ * that the CLI uses the token the user just entered, not whatever cached
+ * session may already exist on disk.
  */
-function tryExec(cmd: string): string | null {
+function tryExec(cmd: string, env: NodeJS.ProcessEnv = process.env): string | null {
 	try {
-		return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+		return execSync(cmd, {
+			encoding: "utf-8",
+			stdio: ["pipe", "pipe", "pipe"],
+			env,
+		}).trim();
 	} catch {
 		return null;
 	}
 }
 
 /**
- * Verify that the `meta` CLI binary is reachable by checking its version.
+ * Verify that the `meta-ads` Python CLI is installed and on PATH.
+ * Uses `--help` so we don't depend on auth being configured yet.
  */
 function checkMetaCliInstalled(): boolean {
-	const result = tryExec("meta --version");
+	const result = tryExec("meta ads --help");
 	return result !== null;
 }
 
 /**
  * List ad accounts available for the given access token.
- * Falls back to manual entry if the CLI call fails.
+ * Uses the canonical `ad-accounts list --output json` flag set; falls back
+ * to manual entry if the CLI call fails or returns unparseable output.
  */
-function listAdAccounts(): string[] {
-	const raw = tryExec("meta ads adaccount list --format json");
+function listAdAccounts(token: string): string[] {
+	const env = { ...process.env, META_ACCESS_TOKEN: token };
+	const raw = tryExec("meta ads ad-accounts list --output json --no-input", env);
 	if (!raw) return [];
 
 	try {
 		const parsed = JSON.parse(raw) as Array<{ id: string; name?: string }>;
+		if (!Array.isArray(parsed)) return [];
 		return parsed.map((a) => (a.name ? `${a.id} (${a.name})` : a.id));
 	} catch {
 		return [];
@@ -89,10 +103,12 @@ function listAdAccounts(): string[] {
 }
 
 /**
- * Validate the Meta access token by running `meta auth status`.
+ * Validate the Meta access token by running `meta ads auth status` with
+ * the just-collected token in the environment.
  */
-function validateToken(): boolean {
-	const result = tryExec("meta auth status");
+function validateToken(token: string): boolean {
+	const env = { ...process.env, META_ACCESS_TOKEN: token };
+	const result = tryExec("meta ads auth status --output json --no-input", env);
 	return result !== null && !result.toLowerCase().includes("error");
 }
 
@@ -106,35 +122,19 @@ export function registerInitCommand(program: Command): void {
 		.action(async () => {
 			section("meta-ads-agent Setup Wizard");
 
-			// Step 1: Check prerequisites (non-fatal)
+			// Step 1: Check prerequisites
 			logger.info("Checking prerequisites...");
 			const cliInstalled = checkMetaCliInstalled();
-			let simulationMode = false;
-
 			if (!cliInstalled) {
-				warn(
-					"Meta Ads CLI not found. Install with: pip install meta-ads\n" +
-						"  → Running in simulation mode. Some features will use the Meta Marketing API directly.",
+				error(
+					"The `meta-ads` Python CLI was not found.\n" +
+						"Install it with: pip install meta-ads\n" +
+						"Then run: meta ads auth login",
 				);
-
-				const { continueWithout } = await inquirer.prompt<{ continueWithout: boolean }>([
-					{
-						type: "confirm",
-						name: "continueWithout",
-						message: "Continue anyway?",
-						default: true,
-					},
-				]);
-
-				if (!continueWithout) {
-					logger.info("Setup cancelled. Install the CLI and run `meta-ads-agent init` again.");
-					return;
-				}
-
-				simulationMode = true;
-			} else {
-				success("meta-ads CLI detected.");
+				process.exitCode = 1;
+				return;
 			}
+			success("meta-ads CLI detected.");
 
 			// Step 2: Meta Access Token
 			const { metaAccessToken } = await inquirer.prompt<{ metaAccessToken: string }>([
@@ -149,7 +149,7 @@ export function registerInitCommand(program: Command): void {
 			]);
 
 			// Step 3: Ad Account selection
-			const accounts = simulationMode ? [] : listAdAccounts();
+			const accounts = listAdAccounts(metaAccessToken);
 			let metaAdAccountId: string;
 
 			if (accounts.length > 0) {
@@ -246,40 +246,53 @@ export function registerInitCommand(program: Command): void {
 				},
 			]);
 
-			// Step 6: Write config
+			// Step 6: Write config (flat keys matching AgentConfigSchema)
 			const config: AgentConfig = {
 				metaAccessToken,
 				metaAdAccountId,
 				llmProvider,
 				...(llmProvider === "claude" ? { anthropicApiKey: apiKey } : { openaiApiKey: apiKey }),
-				simulationMode,
-				agent: {
-					targetRoas: goals.targetRoas,
-					cpaCap: goals.cpaCap,
-					minDailyBudget: goals.minDailyBudget,
-					maxBudgetScaleFactor: goals.maxBudgetScaleFactor,
-					requireApprovalAbove: goals.requireApprovalAbove,
-				},
+				roasTarget: goals.targetRoas,
+				cpaCap: goals.cpaCap,
+				dailyBudgetLimit: goals.minDailyBudget * 100, // sane default ceiling
+				minDailyBudget: goals.minDailyBudget,
+				maxBudgetScaleFactor: goals.maxBudgetScaleFactor,
+				requireApprovalAbove: goals.requireApprovalAbove,
 			};
 
 			if (!existsSync(CONFIG_DIR)) {
 				mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
 			}
+			/* Remove any existing file so 0o600 is enforced on the new inode. */
+			try {
+				if (existsSync(CONFIG_PATH)) {
+					const { unlinkSync, chmodSync } = await import("node:fs");
+					unlinkSync(CONFIG_PATH);
+					void chmodSync;
+				}
+			} catch {
+				/* best effort */
+			}
 			writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), {
 				encoding: "utf-8",
 				mode: 0o600,
 			});
+			/* Belt-and-suspenders: explicit chmod in case mode was masked. */
+			try {
+				const { chmodSync } = await import("node:fs");
+				chmodSync(CONFIG_PATH, 0o600);
+			} catch {
+				/* best effort */
+			}
 			success(`Configuration saved to ${CONFIG_PATH}`);
 
-			// Step 7: Validate token (only if CLI is available)
-			if (!simulationMode) {
-				logger.info("Validating Meta access token...");
-				const tokenValid = validateToken();
-				if (tokenValid) {
-					success("Meta access token is valid.");
-				} else {
-					warn("Could not validate the Meta access token. Please check your token and try again.");
-				}
+			// Step 7: Validate token
+			logger.info("Validating Meta access token...");
+			const tokenValid = validateToken(metaAccessToken);
+			if (tokenValid) {
+				success("Meta access token is valid.");
+			} else {
+				error("Could not validate the Meta access token. Please check your token and try again.");
 			}
 
 			// Summary
@@ -291,16 +304,6 @@ export function registerInitCommand(program: Command): void {
 			console.log(`  Min Daily Budget:      $${goals.minDailyBudget}`);
 			console.log(`  Max Scale Factor:      ${goals.maxBudgetScaleFactor}x`);
 			console.log(`  Approval Threshold:    $${goals.requireApprovalAbove}`);
-
-			if (simulationMode) {
-				console.log();
-				warn(
-					"Simulation mode is enabled. Install the Meta Ads CLI to use all features:\n" +
-						"  pip install meta-ads\n" +
-						"  Then set your token: export ACCESS_TOKEN=<your-token>",
-				);
-			}
-
 			console.log();
 			success("Run `meta-ads-agent run` to start the agent.");
 		});

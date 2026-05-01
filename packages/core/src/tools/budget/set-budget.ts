@@ -12,6 +12,7 @@ import type { GuardrailConfig } from "../../decisions/types.js";
 import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
+import { resolveMetaClient } from "./_client.js";
 
 /**
  * TypeBox schema for set_budget tool parameters.
@@ -50,7 +51,7 @@ type SetBudgetInput = Static<typeof SetBudgetParams>;
  * @returns Frozen tool definition ready for registry.
  */
 export function createSetBudgetTool(
-	client: MetaClient,
+	client: MetaClient | null = null,
 	guardrails: GuardrailConfig = DEFAULT_GUARDRAILS,
 ) {
 	return createTool({
@@ -65,13 +66,18 @@ export function createSetBudgetTool(
 			const targetLevel = adSetId ? "ad set" : "campaign";
 			const targetId = adSetId ?? campaignId;
 
+			/* Resolve the MetaClient: prefer the bound client, fall back to context. */
+			const resolved = resolveMetaClient(client, context);
+			if (resolved.error) return resolved.error;
+			const c = resolved.client;
+
 			/* Fetch current budget */
 			let currentBudgetCents: number;
 			if (adSetId) {
-				const adSet = await client.adSets.get(adSetId);
+				const adSet = await c.adSets.get(adSetId);
 				currentBudgetCents = Number.parseInt(adSet.daily_budget ?? "0", 10);
 			} else {
-				const campaign = await client.campaigns.get(campaignId);
+				const campaign = await c.campaigns.get(campaignId);
 				currentBudgetCents = Number.parseInt(campaign.daily_budget ?? "0", 10);
 			}
 			const currentBudget = currentBudgetCents / 100;
@@ -162,11 +168,11 @@ export function createSetBudgetTool(
 			const newBudgetCents = Math.round(dailyBudget * 100).toString();
 
 			if (adSetId) {
-				await client.adSets.update(adSetId, {
+				await c.adSets.update(adSetId, {
 					daily_budget: newBudgetCents,
 				});
 			} else {
-				await client.campaigns.update(campaignId, {
+				await c.campaigns.update(campaignId, {
 					daily_budget: newBudgetCents,
 				});
 			}

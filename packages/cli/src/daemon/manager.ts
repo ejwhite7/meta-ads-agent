@@ -2,23 +2,42 @@
  * Daemon process manager for the meta-ads-agent.
  *
  * Manages the lifecycle of the agent session: starting, stopping,
- * pausing, resuming, and querying status. Communicates with the
- * core AgentSession through the IPC channel when running as a
- * background daemon, or directly when running in the foreground.
+ * pausing, resuming, and querying status. Wires the AgentSession
+ * (from @meta-ads-agent/core) to a real MetaClient and LLM provider,
+ * and exposes the session through an IPC server for CLI/dashboard
+ * control.
  *
  * The manager stores the PID and session metadata in
  * ~/.meta-ads-agent/daemon.json for cross-process coordination.
  */
 
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import {
+	AgentSession,
+	AuditLogger,
+	ClaudeProvider,
+	DrizzleAuditDatabase,
+	OpenAIProvider,
+	ToolRegistry,
+	allTools,
+	createBudgetTools,
+	createDatabase,
+	loadConfig,
+	parseInsightsToMetrics,
+} from "@meta-ads-agent/core";
+import type { AgentConfig, AgentGoal, CampaignMetrics, LLMProvider } from "@meta-ads-agent/core";
+import { MetaClient } from "@meta-ads-agent/meta-client";
 import { logger } from "../utils/logger.js";
 import { IpcClient } from "./ipc.js";
 import { IpcServer } from "./server.js";
 
 /** Path to the daemon state file. */
 const DAEMON_STATE_PATH = join(homedir(), ".meta-ads-agent", "daemon.json");
+
+/** Default socket path mirrored from server.ts -- chmod-tightened on creation. */
+const DEFAULT_SOCKET_PATH = join(homedir(), ".meta-ads-agent", "agent.sock");
 
 /**
  * Options for starting a new agent session.
@@ -36,15 +55,10 @@ export interface StartOptions {
  * Result of a single-tick execution.
  */
 export interface TickResult {
-	/** Whether the tick completed without errors. */
 	success: boolean;
-	/** Number of tool actions invoked during the tick. */
 	actionsCount: number;
-	/** Duration of the tick in milliseconds. */
 	durationMs: number;
-	/** Summary of decisions made during the tick. */
 	decisions: Array<{ toolName: string; action: string }>;
-	/** Error message if the tick failed. */
 	error?: string;
 }
 
@@ -52,19 +66,12 @@ export interface TickResult {
  * Snapshot of the current agent status.
  */
 export interface AgentStatus {
-	/** Current agent lifecycle state. */
-	state: "running" | "paused" | "stopped";
-	/** Active session identifier, if any. */
+	state: "running" | "paused" | "stopped" | "error" | "idle";
 	sessionId: string | null;
-	/** ISO timestamp when the session started. */
 	startedAt: string | null;
-	/** ISO timestamp of the last completed tick. */
 	lastTickAt: string | null;
-	/** ISO timestamp of the next scheduled tick. */
 	nextTickAt: string | null;
-	/** Total number of ticks completed in this session. */
 	tickCount: number;
-	/** The 5 most recent decisions. */
 	recentDecisions: Array<{
 		timestamp: string;
 		toolName: string;
@@ -77,11 +84,8 @@ export interface AgentStatus {
  * Performance report for a date range.
  */
 export interface PerformanceReport {
-	/** Metrics for the requested period. */
 	current: MetricsSummary;
-	/** Metrics for the prior period of equal length. */
 	previous: MetricsSummary;
-	/** Per-campaign breakdown. */
 	campaigns: Array<{
 		name: string;
 		status: string;
@@ -91,9 +95,6 @@ export interface PerformanceReport {
 	}>;
 }
 
-/**
- * Aggregated performance metrics.
- */
 interface MetricsSummary {
 	spend: number;
 	impressions: number;
@@ -115,15 +116,40 @@ interface DaemonState {
 }
 
 /**
+ * Builds an LLMProvider based on the loaded agent config.
+ */
+function buildLlmProvider(config: AgentConfig): LLMProvider {
+	if (config.llmProvider === "openai") {
+		if (!config.openaiApiKey) {
+			throw new Error("OPENAI_API_KEY is required when LLM_PROVIDER=openai");
+		}
+		return new OpenAIProvider({
+			apiKey: config.openaiApiKey,
+			model: config.llmModel,
+		});
+	}
+	if (!config.anthropicApiKey) {
+		throw new Error("ANTHROPIC_API_KEY is required when LLM_PROVIDER=claude");
+	}
+	return new ClaudeProvider({
+		apiKey: config.anthropicApiKey,
+		model: config.llmModel,
+	});
+}
+
+/**
  * Manages the agent daemon lifecycle.
  *
  * When the agent runs as a long-lived process, the DaemonManager
- * coordinates start/stop/pause/resume via IPC. For single-tick
- * operations, it invokes the core library directly.
+ * coordinates start/stop/pause/resume via IPC.
  */
 export class DaemonManager {
 	private readonly ipc: IpcClient;
 	private ipcServer: IpcServer | null = null;
+	private session: AgentSession | null = null;
+	private dbConnection: ReturnType<typeof createDatabase> | null = null;
+	private currentSessionId: string | null = null;
+	private currentStartedAt: string | null = null;
 
 	constructor() {
 		this.ipc = new IpcClient();
@@ -147,60 +173,207 @@ export class DaemonManager {
 
 	/**
 	 * Start the agent daemon with the given options.
+	 *
+	 * Wires up the full agent stack (config -> MetaClient -> LLM ->
+	 * ToolRegistry -> AgentSession), records the daemon state on disk,
+	 * then begins scheduled OODA ticks.
 	 */
 	async start(options: StartOptions): Promise<void> {
 		logger.debug("Starting daemon with options: %o", options);
 
-		const sessionId = `session_${Date.now()}`;
-		const state: DaemonState = {
-			pid: process.pid,
-			sessionId,
-			startedAt: new Date().toISOString(),
-			intervalMinutes: options.intervalMinutes,
+		/* ---- Load + validate configuration ---- */
+		const baseConfig = loadConfig();
+		const tickIntervalMs = options.intervalMinutes * 60 * 1000;
+		const config: AgentConfig = {
+			...baseConfig,
+			tickIntervalMs,
+			dryRun: options.dryRun || baseConfig.dryRun,
 		};
 
+		/* ---- Build MetaClient and validate auth ---- */
+		const metaClient = new MetaClient({
+			accessToken: config.metaAccessToken,
+			adAccountId: config.metaAdAccountId,
+		});
+		await metaClient.initialize();
+
+		/* ---- Build LLM provider ---- */
+		const llmProvider = buildLlmProvider(config);
+
+		/* ---- Set up database + audit logger ---- */
+		this.dbConnection = createDatabase({
+			type: config.dbType,
+			sqlitePath: config.sqlitePath,
+			postgresUrl: config.postgresUrl,
+		});
+		const auditDb = new DrizzleAuditDatabase(this.dbConnection.db);
+		const auditLogger = new AuditLogger(auditDb);
+
+		/* ---- Build the tool registry: static tools + budget tools bound to client ---- */
+		const goals: AgentGoal = {
+			roasTarget: 3.0,
+			cpaCap: 50,
+			dailyBudgetLimit: 10_000,
+			riskLevel: "moderate",
+		};
+
+		const registry = new ToolRegistry();
+		const boundBudgetTools = createBudgetTools(metaClient, goals);
+		const seen = new Set<string>();
+		for (const tool of [...allTools, ...boundBudgetTools]) {
+			if (seen.has(tool.name)) continue;
+			seen.add(tool.name);
+			registry.register(tool);
+		}
+
+		/* ---- fetchMetrics: pulls fresh insights from Meta ---- */
+		const fetchMetrics = async (): Promise<CampaignMetrics[]> => {
+			const insights = await metaClient.insights.query(config.metaAdAccountId, {
+				level: "campaign",
+				date_preset: "today",
+				fields: [
+					"campaign_id",
+					"impressions",
+					"clicks",
+					"spend",
+					"ctr",
+					"actions",
+					"action_values",
+					"date_start",
+				],
+			});
+			return insights
+				.filter((i) => Boolean(i.campaign_id))
+				.map((i) => {
+					const m = parseInsightsToMetrics(i);
+					return {
+						campaignId: i.campaign_id ?? "",
+						impressions: m.impressions,
+						clicks: m.clicks,
+						spend: m.spend,
+						conversions: m.conversions,
+						roas: m.roas,
+						cpa: m.cpa,
+						ctr: m.ctr,
+						date: i.date_start ?? new Date().toISOString().slice(0, 10),
+					};
+				});
+		};
+
+		/* ---- Construct + start the session ---- */
+		this.session = new AgentSession({
+			config,
+			toolRegistry: registry,
+			llmProvider,
+			auditLogger,
+			goals,
+			fetchMetrics,
+			metaClient,
+		});
+
+		this.currentSessionId = this.session.getStatus().sessionId;
+		this.currentStartedAt = new Date().toISOString();
+
+		const state: DaemonState = {
+			pid: process.pid,
+			sessionId: this.currentSessionId,
+			startedAt: this.currentStartedAt,
+			intervalMinutes: options.intervalMinutes,
+		};
 		this.writeState(state);
 
-		/* Start the IPC server so CLI and dashboard can communicate */
+		/* ---- Wire IPC handlers to the live session ---- */
 		this.ipcServer = new IpcServer();
+		this.registerIpcHandlers();
+		await this.ipcServer.start();
+		this.tightenSocketPermissions();
 
-		this.ipcServer.on("status", async () => ({
-			state: "running" as const,
-			sessionId,
-			startedAt: state.startedAt,
-			lastTickAt: null,
-			nextTickAt: null,
-			tickCount: 0,
-			recentDecisions: [],
-		}));
+		/* ---- Begin scheduled OODA ticks ---- */
+		await this.session.start();
+	}
 
-		this.ipcServer.on("pause", async () => {
+	/**
+	 * Wires IPC method handlers to the running session.
+	 */
+	private registerIpcHandlers(): void {
+		if (!this.ipcServer) return;
+		const server = this.ipcServer;
+
+		server.on("status", async () => {
+			if (!this.session) {
+				return {
+					state: "stopped",
+					sessionId: null,
+					startedAt: null,
+					lastTickAt: null,
+					nextTickAt: null,
+					tickCount: 0,
+					recentDecisions: [],
+				};
+			}
+			const s = this.session.getStatus();
+			return {
+				state: s.state,
+				sessionId: s.sessionId,
+				startedAt: this.currentStartedAt,
+				lastTickAt: s.lastTickAt,
+				nextTickAt: s.nextTickAt,
+				tickCount: s.iterationCount,
+				recentDecisions: [],
+			};
+		});
+
+		server.on("pause", async () => {
 			logger.info("Agent paused via IPC");
+			await this.session?.stop();
 			return { success: true };
 		});
 
-		this.ipcServer.on("resume", async () => {
+		server.on("resume", async () => {
 			logger.info("Agent resumed via IPC");
+			await this.session?.start();
 			return { success: true };
 		});
 
-		this.ipcServer.on("stop", async () => {
+		server.on("stop", async () => {
 			logger.info("Agent stopping via IPC");
 			void this.stop();
 			return { success: true };
 		});
 
-		this.ipcServer.on("run-once", async () => ({
-			success: true,
-			actionsCount: 0,
-			durationMs: 0,
-			decisions: [],
-		}));
+		server.on("run-once", async () => {
+			if (!this.session) {
+				return { success: false, actionsCount: 0, durationMs: 0, decisions: [] };
+			}
+			const start = Date.now();
+			const result = await this.session.runOnce();
+			return {
+				success: result.success,
+				actionsCount: result.executedActions.length,
+				durationMs: Date.now() - start,
+				decisions: result.executedActions.map((a) => ({
+					toolName: a.toolName,
+					action: a.reasoning ?? "",
+				})),
+				error: result.error ?? undefined,
+			};
+		});
 
-		this.ipcServer.on("get-decisions", async () => []);
-		this.ipcServer.on("get-campaigns", async () => []);
+		server.on("get-decisions", async () => []);
+		server.on("get-campaigns", async () => []);
+	}
 
-		await this.ipcServer.start();
+	/**
+	 * Apply 0o600 to the socket file so only the owner can connect.
+	 */
+	private tightenSocketPermissions(): void {
+		try {
+			if (existsSync(DEFAULT_SOCKET_PATH)) {
+				chmodSync(DEFAULT_SOCKET_PATH, 0o600);
+			}
+		} catch (err: unknown) {
+			logger.debug("Failed to chmod socket: %s", (err as Error).message);
+		}
 	}
 
 	/**
@@ -208,9 +381,21 @@ export class DaemonManager {
 	 */
 	async stop(): Promise<void> {
 		logger.debug("Stopping daemon...");
+		if (this.session) {
+			await this.session.stop();
+			this.session = null;
+		}
 		if (this.ipcServer) {
 			await this.ipcServer.stop();
 			this.ipcServer = null;
+		}
+		if (this.dbConnection) {
+			try {
+				this.dbConnection.close();
+			} catch {
+				/* swallow */
+			}
+			this.dbConnection = null;
 		}
 		this.clearState();
 	}
@@ -281,13 +466,28 @@ export class DaemonManager {
 	}
 
 	/**
-	 * Write daemon state to disk.
+	 * Write daemon state to disk with secure permissions.
 	 */
 	private writeState(state: DaemonState): void {
+		const dir = dirname(DAEMON_STATE_PATH);
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true, mode: 0o700 });
+		}
+		/* If the file exists with looser perms, remove it first so that 0o600 takes effect. */
+		try {
+			if (existsSync(DAEMON_STATE_PATH)) unlinkSync(DAEMON_STATE_PATH);
+		} catch {
+			/* ignore */
+		}
 		writeFileSync(DAEMON_STATE_PATH, JSON.stringify(state, null, 2), {
 			encoding: "utf-8",
 			mode: 0o600,
 		});
+		try {
+			chmodSync(DAEMON_STATE_PATH, 0o600);
+		} catch {
+			/* best effort */
+		}
 	}
 
 	/**
