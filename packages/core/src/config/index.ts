@@ -26,6 +26,13 @@ const CONFIG_FILE_PATH = join(homedir(), ".meta-ads-agent", "config.json");
  * Maps environment variable names to their corresponding config keys.
  * Only variables with the META_AGENT_ prefix or well-known names are mapped.
  */
+/**
+ * Maps environment variable names to their corresponding config keys.
+ *
+ * Both `DATABASE_MODE` (canonical, documented in .env.example and CLAUDE.md)
+ * and `DB_TYPE` (legacy short form) map to `dbType`. If both are set, the
+ * later one in this table wins, which means DATABASE_MODE takes precedence.
+ */
 const ENV_MAP: Record<string, keyof AgentConfigInput> = {
 	LLM_PROVIDER: "llmProvider",
 	LLM_MODEL: "llmModel",
@@ -40,6 +47,7 @@ const ENV_MAP: Record<string, keyof AgentConfigInput> = {
 	LOOKBACK_DAYS: "lookbackDays",
 	DRY_RUN: "dryRun",
 	DB_TYPE: "dbType",
+	DATABASE_MODE: "dbType",
 	SQLITE_PATH: "sqlitePath",
 	DATABASE_URL: "postgresUrl",
 	LOG_LEVEL: "logLevel",
