@@ -18,7 +18,7 @@ Comprehensive architectural reference for **meta-ads-agent** — an open-source,
 
 **Key design principles:**
 
-1. **Hybrid Meta integration** — Use Meta's official `meta-ads` Python CLI (47 commands) for standard CRUD operations, fall back to the Marketing API directly (via axios) for capabilities the CLI lacks (audiences, batch ops, A/B testing, ad rules).
+1. **Direct Marketing API integration** — All Meta operations go through the Marketing API at `graph.facebook.com/v21.0` via axios. The package previously routed CRUD through the official `meta-ads` Python CLI; that hybrid layer was retired because the published CLI's subcommand surface had drifted from our wrapper assumptions, breaking every CLI-backed tool at runtime. One auth flow, one rate limiter, one error model, no Python runtime dependency.
 2. **Stateless core, stateful wrapper** — Inspired by pi-mono's architecture. The agent loop itself is a pure function with no side effects. State management (sessions, persistence, retry) lives in wrapper layers.
 3. **Multi-model LLM** — Pluggable provider pattern supporting Claude (Anthropic) and GPT-4o (OpenAI) with a clean adapter interface. Adding a new provider requires implementing two methods.
 4. **Dual-mode persistence** — SQLite for local development and single-user deployment, PostgreSQL for cloud/team environments. Switchable via a single environment variable.
@@ -31,7 +31,7 @@ Comprehensive architectural reference for **meta-ads-agent** — an open-source,
 |---|---|
 | Agent Core | TypeScript 5.6, TypeBox 0.33, EventStream (custom) |
 | LLM Providers | Anthropic SDK (claude-opus-4-5), OpenAI SDK (gpt-4o) |
-| Meta Interface | meta-ads Python CLI (subprocess) + axios (Marketing API v21.0) |
+| Meta Interface | axios direct calls to Marketing API v21.0 (graph.facebook.com) |
 | CLI | commander.js, inquirer, winston, chalk |
 | Dashboard UI | React 18, Vite, Tailwind CSS, shadcn/ui, Recharts |
 | Dashboard API | Hono, Node.js HTTP server |
@@ -420,88 +420,62 @@ const provider = llmRegistry.get(process.env.LLM_PROVIDER ?? "claude");
 
 ## 4. Meta Integration Layer
 
-The Meta integration uses a **hybrid architecture**: the official CLI for standard operations and direct API calls for capabilities the CLI lacks.
+All Meta operations route through the **Marketing API at `graph.facebook.com/v21.0`** via axios. The agent has no Python or CLI runtime dependency.
 
-### CLI Wrapper
-
-The `meta-ads` Python CLI (v1.x, PyPI) provides 47 commands across 11 resource groups. The wrapper spawns it as a subprocess:
-
-```typescript
-class MetaCLIExecutor {
-  async execute(command: string[]): Promise<CLIResult> {
-    // Spawns: python3 -m meta_ads <command> --output json --no-input
-    const proc = spawn("python3", ["-m", "meta_ads", ...command, "--output", "json", "--no-input"]);
-    // Parse stdout as JSON, handle exit codes
-  }
-}
-```
-
-**Exit code handling:**
-
-| Code | Meaning | Agent Response |
-|------|---------|----------------|
-| 0 | Success | Process result normally |
-| 1 | General error | Retry with backoff |
-| 2 | Usage error | Log error, do not retry (bug in our code) |
-| 3 | Auth error | Halt session, notify user |
-| 4 | API error | Parse error, retry if transient |
-| 5 | Not found | Log warning, skip action |
-
-**CLI resource groups (47 commands):**
-
-- **Authentication** (2): `auth setup`, `auth status`
-- **Ad Accounts** (2): `ad-accounts list`, `ad-accounts show`
-- **Pages** (1): `pages list`
-- **Campaigns** (5): `campaigns list/show/create/update/delete`
-- **Ad Sets** (5): `ad-sets list/show/create/update/delete`
-- **Ads** (5): `ads list/show/create/update/delete`
-- **Creatives** (5): `creatives list/show/create/update/delete`
-- **Datasets/Pixels** (6): `datasets list/show/create/update/delete/upload`
-- **Catalogs** (5): `catalogs list/show/create/update/delete`
-- **Product Items** (5): `product-items list/show/create/update/delete`
-- **Product Sets** (5): `product-sets list/show/create/update/delete`
-- **Insights** (1): `insights get`
+> **History**: A `meta-ads` Python CLI wrapper layer existed previously and routed standard CRUD through subprocess spawns. That layer was retired because the published CLI's subcommand surface had drifted from our wrapper assumptions (singular vs plural nouns, no `auth` subcommand, different env var names) and was breaking every CLI-backed tool at runtime. Direct API calls are simpler, faster (no subprocess on every read), and don't depend on which CLI version the user has installed.
 
 ### Direct API Client
 
-For operations the CLI does not support, the agent calls the Marketing API directly via axios:
+The `MetaClient` class is a façade composing per-resource endpoint classes, each backed by `ApiClient` (axios with auth, rate limiting, retry):
 
 ```typescript
-class MetaAPIClient {
-  private baseURL = "https://graph.facebook.com/v21.0";
+class MetaClient {
+  // Resource CRUD
+  campaigns: CampaignEndpoints;   // GET/POST /act_<id>/campaigns, /<id>
+  adSets:    AdSetEndpoints;
+  ads:       AdEndpoints;
+  creatives: CreativeEndpoints;
+  insights:  InsightsEndpoints;   // GET /act_<id>/insights
 
-  // Audiences — not available in CLI
-  async createCustomAudience(params: CustomAudienceParams): Promise<Audience> { ... }
-  async createLookalikeAudience(params: LookalikeParams): Promise<Audience> { ... }
+  // Specialized capabilities
+  audiences:  AudienceEndpoints;  // custom + lookalike
+  batch:      BatchEndpoints;     // bulk ops, up to 50 per request
+  splitTests: SplitTestEndpoints;
+  rules:      RulesEndpoints;     // automated ad rules
+  previews:   PreviewEndpoints;
 
-  // Batch operations — not available in CLI
-  async batchRequest(operations: BatchOperation[]): Promise<BatchResult[]> { ... }
-
-  // A/B testing — not available in CLI
-  async createSplitTest(params: SplitTestParams): Promise<SplitTest> { ... }
-
-  // Ad rules — not available in CLI
-  async createAdRule(params: AdRuleParams): Promise<AdRule> { ... }
-
-  // Advanced targeting — CLI only supports country
-  async getTargetingOptions(query: string): Promise<TargetingOption[]> { ... }
+  // Auth
+  auth:       AuthClient;         // .whoami() probes /me
 }
 ```
 
+### Auth Validation
+
+A token is considered valid iff `GET /me?fields=id,name` returns a 2xx with at least one identity field populated. The Graph API surfaces structured errors (`OAuthException (#190): Invalid OAuth access token`, `(#200): Requires extended permission: ads_management`, etc.) that the agent surfaces verbatim to the operator.
+
+### Error Mapping
+
+| HTTP status | Mapped error class | Agent response |
+|-------------|--------------------|----------------|
+| 400         | `ValidationError`  | Log error, do not retry (programming bug) |
+| 401, 403    | `AuthError`        | Halt session, notify user |
+| 404         | `NotFoundError`    | Log warning, skip action |
+| 429         | `RateLimitError`   | Honour `Retry-After`, exponential backoff |
+| 5xx         | `MetaError`        | Retry with backoff |
+
 ### Rate Limit Budget Tracker
 
-Meta's Marketing API uses a Business Use Case (BUC) rate limiting system with per-account token budgets. The tracker:
+Meta's Marketing API uses a Business Use Case (BUC) rate-limiting system with per-account token budgets. The `RateLimiter`:
 
-1. Reads rate limit headers from every API response (`x-business-use-case-usage`)
-2. Maintains a per-account budget (percentage of allocation consumed)
-3. Blocks requests when budget exceeds 75% (configurable threshold)
-4. Resets on the sliding window boundary
-5. Applies to both CLI (via post-call header inspection) and direct API calls
+1. Reads rate-limit headers from every API response (`x-business-use-case-usage`, `x-app-usage`).
+2. Maintains a per-account budget (percentage of allocation consumed).
+3. Blocks requests when budget exceeds 75% (configurable threshold).
+4. Honours `estimated_time_to_regain_access` from BUC headers when present.
 
 ### Token Storage
 
-- **Local mode**: Stored in `~/.meta-ads-agent/config.json` with `0600` file permissions. Contains `access_token`, `ad_account_id`, `app_id`, and `app_secret`.
-- **Cloud mode**: Read from environment variables (`META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_APP_ID`, `META_APP_SECRET`). Never written to disk.
+- **Local mode**: Stored in `~/.meta-ads-agent/config.json` with `0o600` file permissions. Contains `metaAccessToken`, `metaAdAccountId`, `anthropicApiKey` or `openaiApiKey`, plus goal/guardrail config.
+- **Cloud mode**: Read from environment variables (`META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, etc.). Never written to disk.
 
 ---
 
@@ -854,7 +828,7 @@ These are specific failure modes identified during architecture analysis. Every 
 
 3. **Auth token expiry confusion**: System user tokens are permanent, but the underlying app may be deactivated or permissions revoked. Exit code 3 (auth error) should trigger a full token validation flow, not just a retry.
 
-4. **Missing CLI capabilities assumed present**: The agent may attempt operations that require direct API access (audiences, batch ops, A/B testing) through the CLI. The tool system must route these to the direct API client, never to the CLI wrapper.
+4. **Marketing API surface drift**: Meta versions the Marketing API (`v21.0` today). When upgrading the version string in `packages/meta-client/src/api/client.ts`, audit each endpoint module's field list -- field names, valid values for enums (objectives, optimization goals), and required-parameter sets all evolve between versions.
 
 5. **Rate limit blindness**: The CLI does not expose rate limit headers. The rate limit tracker must parse headers from direct API calls AND estimate CLI-induced usage based on command frequency.
 
@@ -907,7 +881,7 @@ This section documents the current state of all packages, tool domains, and area
 | Package | Status | Description |
 |---------|--------|-------------|
 | `packages/core` | Implemented | Agent loop (OODA), tool system with TypeBox schemas, LLM adapters (Claude + OpenAI), decision engine with scoring and guardrails, Drizzle DB schema, audit logger, config loader |
-| `packages/meta-client` | Implemented | Two-layer Meta client: CLI wrapper (spawns `meta-ads` Python CLI) + direct API client (axios to `graph.facebook.com/v21.0`). Rate limiter, error handling, 11 CLI command groups, 5 API endpoint modules |
+| `packages/meta-client` | Implemented | Direct Marketing API client (axios to `graph.facebook.com/v21.0`). Per-resource endpoint classes for campaigns, ad sets, ads, creatives, insights, audiences, batch, split tests, rules, previews. Per-account rate limiter parsing BUC headers. Typed error hierarchy. |
 | `packages/cli` | Implemented | Commander.js CLI with 8 commands: `init`, `run`, `run-once`, `status`, `report`, `pause`, `resume`, `config`. Daemon manager, Winston logging, interactive setup wizard |
 | `packages/dashboard` | Implemented | React 18 + Vite + Tailwind dashboard with 5 pages (Overview, Decisions, Campaigns, Configuration, NotFound). Hono API server, Recharts, polling hooks, agent control buttons |
 
