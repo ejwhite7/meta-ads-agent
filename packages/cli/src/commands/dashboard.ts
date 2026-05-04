@@ -24,6 +24,7 @@ import {
 	AuditLogger,
 	CampaignGoalRepository,
 	DrizzleAuditDatabase,
+	agentConfig,
 	agentSessions,
 	createDatabase,
 	inferDefaultKpi,
@@ -641,6 +642,164 @@ export function registerDashboardCommand(program: Command): void {
 						const msg = err instanceof Error ? err.message : String(err);
 						return c.json({ error: `Insights timeseries failed: ${msg}` }, 502);
 					}
+				});
+
+				/* ---- Configuration page wiring ----
+				 *
+				 * The dashboard's Configuration page used to render fixed defaults
+				 * and a Save button that just wrote to localStorage — it never
+				 * hit the backend. These two endpoints make it real:
+				 *
+				 *   GET  /api/configuration  -> active agent_config row + the
+				 *                              runtime values that aren't editable
+				 *                              from the dashboard (LLM provider,
+				 *                              tick interval, ad account, db type).
+				 *   PUT  /api/configuration  -> insert a NEW agent_config row
+				 *                              (history-by-insert per the table's
+				 *                              docstring).
+				 *
+				 * Per-campaign goal fields (min_daily_budget, max_budget_scale_factor,
+				 * require_approval_above) deliberately do NOT appear here — they
+				 * live on `campaign_goals` per DESIGN.md §2/§3 and the dashboard
+				 * surfaces them under /goals. The legacy AgentGoal columns on
+				 * agent_config (roasTarget/cpaCap/dailyBudgetLimit/riskLevel) are
+				 * still useful as account-wide guardrails the budget tools bind
+				 * against. */
+
+				app.get("/api/configuration", async (c) => {
+					const rows = await dbConn.db
+						.select()
+						.from(agentConfig)
+						.where(eq(agentConfig.adAccountId, cfg.metaAdAccountId))
+						.orderBy(desc(agentConfig.createdAt))
+						.limit(1);
+					const active = rows.length > 0 ? rows[0] : null;
+
+					/* Pull runtime tick interval from the daemon state file when
+					 * possible — it's the source of truth for the running daemon's
+					 * cadence. The CLI flag is what the operator passed; if we
+					 * stored only what `loadConfig()` says, we'd surface the
+					 * environment-default rather than the actual cadence. */
+					let runtimeIntervalMinutes: number | null = null;
+					try {
+						const live = (await ipc.send("status", {})) as { intervalMinutes?: number } | null;
+						if (live && typeof live.intervalMinutes === "number") {
+							runtimeIntervalMinutes = live.intervalMinutes;
+						}
+					} catch {
+						/* daemon not running; fall through to config-derived value */
+					}
+					if (runtimeIntervalMinutes === null && cfg.tickIntervalMs) {
+						runtimeIntervalMinutes = Math.round(cfg.tickIntervalMs / 60000);
+					}
+
+					return c.json({
+						/* Editable: account-wide guardrails. */
+						guardrails: active
+							? {
+									roasTarget: active.roasTarget,
+									cpaCap: active.cpaCap,
+									dailyBudgetLimit: active.dailyBudgetLimit,
+									riskLevel: active.riskLevel,
+									configuredAt: active.createdAt,
+								}
+							: null,
+						/* Read-only: changing requires init re-run or daemon restart. */
+						runtime: {
+							llmProvider: cfg.llmProvider,
+							tickIntervalMinutes: runtimeIntervalMinutes,
+							adAccountId: cfg.metaAdAccountId,
+							dbType: cfg.dbType,
+							dryRun: cfg.dryRun,
+						},
+					});
+				});
+
+				app.put("/api/configuration", async (c) => {
+					let body: unknown;
+					try {
+						body = await c.req.json();
+					} catch {
+						return c.json({ error: "Invalid JSON body" }, 400);
+					}
+					if (typeof body !== "object" || body === null) {
+						return c.json({ error: "Body must be a JSON object" }, 400);
+					}
+					const raw = body as Record<string, unknown>;
+
+					const num = (v: unknown, name: string): number | null => {
+						if (typeof v !== "number" || !Number.isFinite(v)) return null;
+						if (v < 0) {
+							throw new Error(`${name} must be non-negative`);
+						}
+						return v;
+					};
+
+					let roasTarget: number | null;
+					let cpaCap: number | null;
+					let dailyBudgetLimit: number | null;
+					try {
+						roasTarget = num(raw.roasTarget, "roasTarget");
+						cpaCap = num(raw.cpaCap, "cpaCap");
+						dailyBudgetLimit = num(raw.dailyBudgetLimit, "dailyBudgetLimit");
+					} catch (err) {
+						return c.json({ error: (err as Error).message }, 400);
+					}
+					if (roasTarget === null || cpaCap === null || dailyBudgetLimit === null) {
+						return c.json(
+							{
+								error:
+									"roasTarget, cpaCap, and dailyBudgetLimit are all required and must be finite numbers",
+							},
+							400,
+						);
+					}
+					const riskLevel = raw.riskLevel;
+					if (
+						riskLevel !== "conservative" &&
+						riskLevel !== "moderate" &&
+						riskLevel !== "aggressive"
+					) {
+						return c.json(
+							{
+								error: "riskLevel must be 'conservative', 'moderate', or 'aggressive'",
+							},
+							400,
+						);
+					}
+
+					const now = new Date().toISOString();
+					const inserted = await dbConn.db
+						.insert(agentConfig)
+						.values({
+							adAccountId: cfg.metaAdAccountId,
+							roasTarget,
+							cpaCap,
+							dailyBudgetLimit,
+							riskLevel,
+							createdAt: now,
+						})
+						.returning();
+
+					/* Note: the running daemon won't pick up the new guardrails until
+					 * its next start — the AgentGoal is captured at session
+					 * construction (daemon/manager.ts:start) and used to bind the
+					 * budget tools. We surface this in the response so the UI can
+					 * show a "restart daemon to apply" hint. */
+					return c.json(
+						{
+							guardrails: {
+								roasTarget,
+								cpaCap,
+								dailyBudgetLimit,
+								riskLevel,
+								configuredAt: now,
+							},
+							requiresDaemonRestart: true,
+							insertedId: inserted[0]?.id ?? null,
+						},
+						201,
+					);
 				});
 
 				app.get("/api/goals", async (c) => {
