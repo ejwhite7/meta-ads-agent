@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 *.tsbuildinfo
+# CLI's bundled copy of the dashboard build (generated, ships in npm tarball)
+packages/cli/dashboard-static/
 
 # Turborepo
 .turbo/
