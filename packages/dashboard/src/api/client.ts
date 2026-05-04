@@ -104,6 +104,99 @@ export interface DecisionFilter {
 }
 
 /**
+ * Per-campaign goal — mirror of `CampaignGoal` in @meta-ads-agent/core
+ * (packages/core/src/goals/types.ts). Field names + types must match
+ * what the backend returns verbatim.
+ */
+export type PrimaryKpi =
+	| "roas"
+	| "cpa"
+	| "cpl"
+	| "cpc"
+	| "ctr"
+	| "cpm"
+	| "cpi"
+	| "cost_per_thruplay"
+	| "thruplay_rate"
+	| "frequency"
+	| "reach";
+
+export type KpiDirection = "maximize" | "minimize";
+
+export interface SecondaryKpi {
+	kpi: PrimaryKpi;
+	target?: number;
+	direction?: KpiDirection;
+}
+
+export interface CampaignGoal {
+	dbId: number;
+	adAccountId: string;
+	campaignId: string;
+	primaryKpi: PrimaryKpi;
+	primaryKpiTarget: number;
+	primaryKpiDirection: KpiDirection;
+	secondaryKpis: SecondaryKpi[];
+	minDailyBudget: number | null;
+	maxBudgetScaleFactor: number | null;
+	requireApprovalAbove: number | null;
+	lastSeenObjective: string;
+	configuredAt: string;
+	configuredBy: string;
+	notes: string | null;
+	deletedAt: string | null;
+}
+
+/**
+ * A campaign that needs operator attention before the agent will act.
+ * Mirrors `PendingGuidance` in @meta-ads-agent/core.
+ */
+export type PendingGuidanceReason =
+	| "no_goal_configured"
+	| "objective_changed"
+	| "goal_explicitly_reset";
+
+export interface PendingGuidance {
+	campaignId: string;
+	campaignName: string;
+	currentObjective: string;
+	status: string;
+	dailyBudget: number | null;
+	reason: PendingGuidanceReason;
+	previousObjective?: string;
+	previousGoalDbId?: number;
+}
+
+/**
+ * Default goal suggestion returned by `GET /api/goals/defaults`.
+ * Mirrors `DefaultGoal` in @meta-ads-agent/core.
+ */
+export interface DefaultGoal {
+	primaryKpi: PrimaryKpi;
+	primaryKpiTarget: number;
+	primaryKpiDirection: KpiDirection;
+	promptLabel: string;
+	currency: boolean;
+}
+
+/**
+ * Body for `POST /api/goals`. The backend stamps `adAccountId`
+ * (always the configured account) and `configuredBy: "dashboard"`.
+ */
+export interface CampaignGoalUpsert {
+	campaignId: string;
+	primaryKpi: PrimaryKpi;
+	primaryKpiTarget: number;
+	primaryKpiDirection: KpiDirection;
+	lastSeenObjective: string;
+	secondaryKpis?: SecondaryKpi[];
+	minDailyBudget?: number | null;
+	maxBudgetScaleFactor?: number | null;
+	requireApprovalAbove?: number | null;
+	notes?: string;
+}
+
+/**
  * Campaign metrics snapshot.
  */
 export interface CampaignMetrics {
@@ -219,6 +312,67 @@ export const api = {
 	 */
 	getCampaigns(): Promise<CampaignMetrics[]> {
 		return request<CampaignMetrics[]>("/api/campaigns");
+	},
+
+	/**
+	 * Per-campaign goal management.
+	 *
+	 * `pending` hits the live Marketing API and may return 502 if the
+	 * configured token is invalid. The other endpoints read/write only
+	 * the local SQLite audit DB.
+	 */
+	goals: {
+		/** List every active (non-soft-deleted) goal in the account. */
+		list(): Promise<CampaignGoal[]> {
+			return request<CampaignGoal[]>("/api/goals");
+		},
+
+		/** Fetch the active goal for one campaign, or null if none. */
+		async get(campaignId: string): Promise<CampaignGoal | null> {
+			try {
+				return await request<CampaignGoal>(`/api/goals/${encodeURIComponent(campaignId)}`);
+			} catch (err) {
+				if (err instanceof ApiError && err.status === 404) return null;
+				throw err;
+			}
+		},
+
+		/**
+		 * Campaigns the agent is currently refusing to act on because they
+		 * have no goal or their objective drifted from the configured one.
+		 */
+		pending(): Promise<PendingGuidance[]> {
+			return request<PendingGuidance[]>("/api/goals/pending");
+		},
+
+		/**
+		 * Suggest a sensible default goal for a Meta objective. Used by
+		 * the configure-goal form to prefill values.
+		 */
+		defaults(objective: string): Promise<DefaultGoal> {
+			const qs = new URLSearchParams({ objective }).toString();
+			return request<DefaultGoal>(`/api/goals/defaults?${qs}`);
+		},
+
+		/**
+		 * Create or replace a goal for a campaign. The backend
+		 * soft-deletes any existing goal first, so the active-row
+		 * invariant stays clean and history is preserved by the table.
+		 */
+		upsert(input: CampaignGoalUpsert): Promise<CampaignGoal> {
+			return request<CampaignGoal>("/api/goals", {
+				method: "POST",
+				body: JSON.stringify(input),
+			});
+		},
+
+		/** Soft-delete a campaign's goal so it surfaces as pending again. */
+		reset(campaignId: string): Promise<{ success: boolean; deletedAt: string | null }> {
+			return request<{ success: boolean; deletedAt: string | null }>(
+				`/api/goals/${encodeURIComponent(campaignId)}`,
+				{ method: "DELETE" },
+			);
+		},
 	},
 
 	/**

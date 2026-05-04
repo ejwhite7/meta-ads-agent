@@ -22,13 +22,24 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import {
 	AuditLogger,
+	CampaignGoalRepository,
 	DrizzleAuditDatabase,
 	agentDecisions,
 	agentSessions,
 	campaignSnapshots,
 	createDatabase,
+	inferDefaultKpi,
 	loadConfig,
 } from "@meta-ads-agent/core";
+import type {
+	CampaignGoal,
+	CampaignGoalInput,
+	KpiDirection,
+	PendingGuidance,
+	PrimaryKpi,
+	SecondaryKpi,
+} from "@meta-ads-agent/core";
+import { MetaClient } from "@meta-ads-agent/meta-client";
 import type { Command } from "commander";
 import { desc, eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
@@ -157,7 +168,24 @@ export function registerDashboardCommand(program: Command): void {
 					postgresUrl: cfg.postgresUrl,
 				});
 				const auditLogger = new AuditLogger(new DrizzleAuditDatabase(dbConn.db));
+				const goalRepo = new CampaignGoalRepository(dbConn.db);
 				const ipc = new IpcClient();
+
+				/* MetaClient is constructed lazily on first request that needs it.
+				 * Keeping it module-scoped means we don't pay the `initialize()`
+				 * cost on dashboard startup, and a missing/expired token only
+				 * surfaces on the routes that actually call into Graph. */
+				let cachedMetaClient: MetaClient | null = null;
+				async function getMetaClient(): Promise<MetaClient> {
+					if (cachedMetaClient) return cachedMetaClient;
+					const client = new MetaClient({
+						accessToken: cfg.metaAccessToken,
+						adAccountId: cfg.metaAdAccountId,
+					});
+					await client.initialize();
+					cachedMetaClient = client;
+					return client;
+				}
 
 				const app = new Hono();
 
@@ -236,6 +264,257 @@ export function registerDashboardCommand(program: Command): void {
 				app.get("/api/campaigns", async (c) => {
 					const rows = await dbConn.db.select().from(campaignSnapshots).limit(50);
 					return c.json(rows);
+				});
+
+				/* ---- Per-campaign goal management ----
+				 *
+				 * The CLI has had `meta-ads-agent guidance` for this since PR #23.
+				 * These endpoints are the dashboard parity: list/create/delete
+				 * goals, and surface the same "pending guidance" set the agent
+				 * loop and the interactive `guidance` mode use to find campaigns
+				 * that need an explicit goal before the agent will act on them.
+				 *
+				 * Pending detection (mirrors guidance.ts): a campaign is pending
+				 * if it has NO active goal at all, OR its current Meta objective
+				 * has drifted from `lastSeenObjective`. Both reasons are surfaced
+				 * with the same `PendingGuidanceReason` vocabulary the agent uses.
+				 */
+
+				app.get("/api/goals", async (c) => {
+					const goals = await goalRepo.listActive(cfg.metaAdAccountId);
+					return c.json(goals);
+				});
+
+				app.get("/api/goals/defaults", (c) => {
+					const objective = c.req.query("objective") ?? "";
+					return c.json(inferDefaultKpi(objective));
+				});
+
+				app.get("/api/goals/pending", async (c) => {
+					/* Hits the live Marketing API. If the operator's token is
+					 * missing or invalid we surface a 502 with the diagnostic
+					 * rather than crashing the whole dashboard. */
+					let client: MetaClient;
+					try {
+						client = await getMetaClient();
+					} catch (err) {
+						const message = err instanceof Error ? err.message : String(err);
+						return c.json({ error: `Meta API unavailable: ${message}` }, 502);
+					}
+
+					interface MetaCampaignLite {
+						id: string;
+						name: string;
+						objective: string;
+						status: string;
+						daily_budget?: string;
+					}
+					let liveCampaigns: MetaCampaignLite[];
+					try {
+						liveCampaigns = (await client.campaigns.list(
+							cfg.metaAdAccountId,
+						)) as MetaCampaignLite[];
+					} catch (err) {
+						const message = err instanceof Error ? err.message : String(err);
+						return c.json({ error: `Meta campaign list failed: ${message}` }, 502);
+					}
+
+					const active = await goalRepo.listActive(cfg.metaAdAccountId);
+					const byCampaign = new Map(active.map((g) => [g.campaignId, g]));
+
+					const pending: PendingGuidance[] = [];
+					for (const camp of liveCampaigns) {
+						const goal = byCampaign.get(camp.id);
+						const dailyBudget = camp.daily_budget
+							? Number.parseInt(camp.daily_budget, 10) / 100
+							: null;
+						if (!goal) {
+							pending.push({
+								campaignId: camp.id,
+								campaignName: camp.name,
+								currentObjective: camp.objective,
+								status: camp.status,
+								dailyBudget,
+								reason: "no_goal_configured",
+							});
+						} else if (goal.lastSeenObjective !== camp.objective) {
+							pending.push({
+								campaignId: camp.id,
+								campaignName: camp.name,
+								currentObjective: camp.objective,
+								status: camp.status,
+								dailyBudget,
+								reason: "objective_changed",
+								previousObjective: goal.lastSeenObjective,
+							});
+						}
+					}
+					return c.json(pending);
+				});
+
+				app.get("/api/goals/:campaignId", async (c) => {
+					const campaignId = c.req.param("campaignId");
+					const goal = await goalRepo.getActive(cfg.metaAdAccountId, campaignId);
+					if (!goal) return c.json({ error: "No active goal for campaign" }, 404);
+					return c.json(goal);
+				});
+
+				/* Whitelist of valid PrimaryKpi values; mirrors the type union in
+				 * goals/types.ts. Adding a KPI to that union also requires adding
+				 * it here — kept as a runtime check because the API receives
+				 * untyped JSON over the wire. */
+				const VALID_KPIS = new Set<PrimaryKpi>([
+					"roas",
+					"cpa",
+					"cpl",
+					"cpc",
+					"ctr",
+					"cpm",
+					"cpi",
+					"cost_per_thruplay",
+					"thruplay_rate",
+					"frequency",
+					"reach",
+				]);
+
+				app.post("/api/goals", async (c) => {
+					let body: unknown;
+					try {
+						body = await c.req.json();
+					} catch {
+						return c.json({ error: "Invalid JSON body" }, 400);
+					}
+					if (typeof body !== "object" || body === null) {
+						return c.json({ error: "Body must be a JSON object" }, 400);
+					}
+					const raw = body as Record<string, unknown>;
+
+					/* ---- Required fields ---- */
+					const campaignId = raw.campaignId;
+					const primaryKpi = raw.primaryKpi;
+					const primaryKpiTarget = raw.primaryKpiTarget;
+					const primaryKpiDirection = raw.primaryKpiDirection;
+					const lastSeenObjective = raw.lastSeenObjective;
+
+					if (typeof campaignId !== "string" || campaignId.length === 0) {
+						return c.json({ error: "campaignId is required" }, 400);
+					}
+					if (typeof primaryKpi !== "string" || !VALID_KPIS.has(primaryKpi as PrimaryKpi)) {
+						return c.json(
+							{ error: `primaryKpi must be one of ${[...VALID_KPIS].join(", ")}` },
+							400,
+						);
+					}
+					if (typeof primaryKpiTarget !== "number" || !Number.isFinite(primaryKpiTarget)) {
+						return c.json({ error: "primaryKpiTarget must be a finite number" }, 400);
+					}
+					if (primaryKpiTarget < 0) {
+						return c.json({ error: "primaryKpiTarget must be non-negative" }, 400);
+					}
+					if (primaryKpiDirection !== "maximize" && primaryKpiDirection !== "minimize") {
+						return c.json({ error: "primaryKpiDirection must be 'maximize' or 'minimize'" }, 400);
+					}
+					if (typeof lastSeenObjective !== "string" || lastSeenObjective.length === 0) {
+						return c.json({ error: "lastSeenObjective is required" }, 400);
+					}
+
+					/* ---- Optional fields ---- */
+					let secondaryKpis: SecondaryKpi[] | undefined;
+					if (raw.secondaryKpis !== undefined && raw.secondaryKpis !== null) {
+						if (!Array.isArray(raw.secondaryKpis)) {
+							return c.json({ error: "secondaryKpis must be an array" }, 400);
+						}
+						secondaryKpis = [];
+						for (const item of raw.secondaryKpis) {
+							if (
+								typeof item !== "object" ||
+								item === null ||
+								typeof (item as { kpi?: unknown }).kpi !== "string" ||
+								!VALID_KPIS.has((item as { kpi: string }).kpi as PrimaryKpi)
+							) {
+								return c.json({ error: "Each secondaryKpis entry needs a valid 'kpi'" }, 400);
+							}
+							const entry = item as { kpi: string; target?: unknown; direction?: unknown };
+							const sk: SecondaryKpi = { kpi: entry.kpi as PrimaryKpi };
+							if (typeof entry.target === "number" && Number.isFinite(entry.target)) {
+								(sk as { target?: number }).target = entry.target;
+							}
+							if (entry.direction === "maximize" || entry.direction === "minimize") {
+								(sk as { direction?: KpiDirection }).direction = entry.direction;
+							}
+							secondaryKpis.push(sk);
+						}
+					}
+
+					const optionalNumber = (v: unknown, label: string): number | null | undefined => {
+						if (v === undefined) return undefined;
+						if (v === null) return null;
+						if (typeof v !== "number" || !Number.isFinite(v)) {
+							throw new Error(`${label} must be a finite number, null, or omitted`);
+						}
+						return v;
+					};
+					let minDailyBudget: number | null | undefined;
+					let maxBudgetScaleFactor: number | null | undefined;
+					let requireApprovalAbove: number | null | undefined;
+					try {
+						minDailyBudget = optionalNumber(raw.minDailyBudget, "minDailyBudget");
+						maxBudgetScaleFactor = optionalNumber(raw.maxBudgetScaleFactor, "maxBudgetScaleFactor");
+						requireApprovalAbove = optionalNumber(raw.requireApprovalAbove, "requireApprovalAbove");
+					} catch (err) {
+						return c.json({ error: (err as Error).message }, 400);
+					}
+
+					const notes = typeof raw.notes === "string" ? raw.notes : undefined;
+
+					/* If a goal already exists for this campaign, soft-delete it
+					 * before inserting the new one so the active-row invariant
+					 * stays clean. The repository accepts coexisting rows but the
+					 * dashboard's mental model is "replace the goal," not "add
+					 * another version that hides the prior one." The history is
+					 * preserved either way. */
+					const existing = await goalRepo.getActive(cfg.metaAdAccountId, campaignId);
+					if (existing) {
+						await goalRepo.softDelete(
+							cfg.metaAdAccountId,
+							campaignId,
+							"dashboard",
+							"replaced via dashboard",
+						);
+					}
+
+					const input: CampaignGoalInput = {
+						adAccountId: cfg.metaAdAccountId,
+						campaignId,
+						primaryKpi: primaryKpi as PrimaryKpi,
+						primaryKpiTarget,
+						primaryKpiDirection: primaryKpiDirection as KpiDirection,
+						lastSeenObjective,
+						configuredBy: "dashboard",
+						...(secondaryKpis ? { secondaryKpis } : {}),
+						...(minDailyBudget !== undefined && minDailyBudget !== null ? { minDailyBudget } : {}),
+						...(maxBudgetScaleFactor !== undefined && maxBudgetScaleFactor !== null
+							? { maxBudgetScaleFactor }
+							: {}),
+						...(requireApprovalAbove !== undefined && requireApprovalAbove !== null
+							? { requireApprovalAbove }
+							: {}),
+						...(notes ? { notes } : {}),
+					};
+					const saved: CampaignGoal = await goalRepo.upsert(input);
+					return c.json(saved, 201);
+				});
+
+				app.delete("/api/goals/:campaignId", async (c) => {
+					const campaignId = c.req.param("campaignId");
+					const result = await goalRepo.softDelete(
+						cfg.metaAdAccountId,
+						campaignId,
+						"dashboard",
+						"reset via dashboard",
+					);
+					if (!result) return c.json({ error: "No active goal to reset" }, 404);
+					return c.json({ success: true, deletedAt: result.deletedAt });
 				});
 
 				app.post("/api/control/pause", async (c) => {

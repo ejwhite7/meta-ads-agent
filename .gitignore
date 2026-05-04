@@ -33,3 +33,7 @@ Thumbs.db
 *.swp
 *.swo
 packages/cli/dashboard-static/
+
+# Agents
+.agents
+.agents/

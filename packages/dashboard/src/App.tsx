@@ -11,6 +11,7 @@ import { Shell } from "./components/layout/Shell";
 import { Campaigns } from "./pages/Campaigns";
 import { Configuration } from "./pages/Configuration";
 import { Decisions } from "./pages/Decisions";
+import { Goals } from "./pages/Goals";
 import { NotFound } from "./pages/NotFound";
 import { Overview } from "./pages/Overview";
 
@@ -24,6 +25,7 @@ export function App(): React.ReactElement {
 				<Route path="/" element={<Overview />} />
 				<Route path="/decisions" element={<Decisions />} />
 				<Route path="/campaigns" element={<Campaigns />} />
+				<Route path="/goals" element={<Goals />} />
 				<Route path="/configuration" element={<Configuration />} />
 				<Route path="*" element={<NotFound />} />
 			</Routes>
