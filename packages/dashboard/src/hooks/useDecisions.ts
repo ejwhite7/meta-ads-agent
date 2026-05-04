@@ -33,6 +33,7 @@ export function useDecisions(filter?: DecisionFilter): UseDecisionsResult {
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: filter is destructured into stable primitives
 	useEffect(() => {
+		/* re-fetch when any primitive filter field changes */
 		let cancelled = false;
 
 		async function fetchDecisions(): Promise<void> {
@@ -60,7 +61,14 @@ export function useDecisions(filter?: DecisionFilter): UseDecisionsResult {
 		return () => {
 			cancelled = true;
 		};
-	}, [filter?.status, filter?.search, filter?.limit, filter?.offset]);
+	}, [
+		filter?.status,
+		filter?.search,
+		filter?.limit,
+		filter?.offset,
+		filter?.startDate,
+		filter?.endDate,
+	]);
 
 	return { decisions, loading, error };
 }

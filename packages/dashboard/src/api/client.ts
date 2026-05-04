@@ -98,6 +98,9 @@ export interface DecisionFilter {
 	search?: string;
 	limit?: number;
 	offset?: number;
+	/** ISO 8601 timestamps; sent server-side as startDate/endDate. */
+	startDate?: string;
+	endDate?: string;
 }
 
 /**
@@ -196,13 +199,16 @@ export const api = {
 	/**
 	 * Fetch the agent decision log.
 	 *
-	 * Only `limit`/`offset` are sent to the server -- `status`/`search`
-	 * are applied client-side because the backend doesn't yet honor them.
+	 * `limit`/`offset`/`startDate`/`endDate` are sent to the server.
+	 * `status`/`search` are applied client-side because the backend
+	 * doesn't yet honor them.
 	 */
 	getDecisions(filter?: DecisionFilter): Promise<AuditRecord[]> {
 		const params = new URLSearchParams();
 		if (filter?.limit) params.set("limit", String(filter.limit));
 		if (filter?.offset) params.set("offset", String(filter.offset));
+		if (filter?.startDate) params.set("startDate", filter.startDate);
+		if (filter?.endDate) params.set("endDate", filter.endDate);
 
 		const qs = params.toString();
 		return request<AuditRecord[]>(`/api/decisions${qs ? `?${qs}` : ""}`);

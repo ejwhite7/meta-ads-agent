@@ -19,6 +19,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
+import { DateRangeProvider } from "./lib/date-range";
 /* This import is what causes Vite/PostCSS/Tailwind to actually emit a
  * stylesheet. Without it the build produces no .css file at all and the
  * UI renders unstyled (Tailwind classes become inert). Keep this import
@@ -34,7 +35,9 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
 	<React.StrictMode>
 		<BrowserRouter>
-			<App />
+			<DateRangeProvider>
+				<App />
+			</DateRangeProvider>
 		</BrowserRouter>
 	</React.StrictMode>,
 );

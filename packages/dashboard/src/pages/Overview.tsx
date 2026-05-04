@@ -14,6 +14,7 @@ import { ROASChart } from "../components/charts/ROASChart";
 import { SpendChart } from "../components/charts/SpendChart";
 import { useAgentStatus } from "../hooks/useAgentStatus";
 import { useDecisions } from "../hooks/useDecisions";
+import { formatRange, rangeToIso, useDateRange } from "../lib/date-range";
 
 /**
  * Main dashboard overview page.
@@ -22,8 +23,14 @@ import { useDecisions } from "../hooks/useDecisions";
  * view of the agent's current state, performance, and recent activity.
  */
 export function Overview(): React.ReactElement {
+	const { range } = useDateRange();
+	const iso = rangeToIso(range);
 	const { status, loading: statusLoading, error: statusError } = useAgentStatus();
-	const { decisions, loading: decisionsLoading } = useDecisions({ limit: 5 });
+	const { decisions, loading: decisionsLoading } = useDecisions({
+		limit: 5,
+		startDate: iso.startDate,
+		endDate: iso.endDate,
+	});
 
 	if (statusLoading) {
 		return (
@@ -49,6 +56,7 @@ export function Overview(): React.ReactElement {
 				<div className="flex items-center gap-4">
 					<h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
 					{status && <StatusBadge state={status.state} uptime={status.uptime} />}
+					<span className="text-sm text-gray-500">{formatRange(range)}</span>
 				</div>
 				{status && <ControlButtons currentState={status.state} />}
 			</div>
