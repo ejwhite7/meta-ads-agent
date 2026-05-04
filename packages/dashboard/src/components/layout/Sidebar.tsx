@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
 	{ label: "Overview", to: "/", icon: "home" },
 	{ label: "Decisions", to: "/decisions", icon: "list" },
 	{ label: "Campaigns", to: "/campaigns", icon: "bar-chart" },
+	{ label: "Goals", to: "/goals", icon: "target" },
 	{ label: "Configuration", to: "/configuration", icon: "settings" },
 ];
 
@@ -85,6 +86,21 @@ function NavIcon({ name }: { name: string }): React.ReactElement {
 					strokeLinejoin="round"
 					d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
 				/>
+			</svg>
+		),
+		target: (
+			<svg
+				role="img"
+				aria-label="icon"
+				className="w-5 h-5"
+				fill="none"
+				viewBox="0 0 24 24"
+				stroke="currentColor"
+				strokeWidth={2}
+			>
+				<circle cx="12" cy="12" r="9" />
+				<circle cx="12" cy="12" r="5" />
+				<circle cx="12" cy="12" r="1.5" fill="currentColor" />
 			</svg>
 		),
 		settings: (
