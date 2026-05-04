@@ -13,7 +13,12 @@
  */
 
 import { useEffect, useState } from "react";
-import { type MetricsSummary, type MetricsTimeseries, api } from "../api/client";
+import {
+	type MetricsSummary,
+	type MetricsTimeseries,
+	type RoasTargetResponse,
+	api,
+} from "../api/client";
 
 /**
  * Generic shape returned by both hooks. Loading/error/data triple.
@@ -58,6 +63,42 @@ export function useMetricsSummary(days = 7): AsyncResult<MetricsSummary> {
 			cancelled = true;
 		};
 	}, [days]);
+
+	return { data, loading, error };
+}
+
+/**
+ * Fetches `GET /api/metrics/roas-target` — the spend-weighted average
+ * ROAS target across campaigns whose primary KPI is `roas`. Used as
+ * the reference line on the Overview ROAS chart. Returns `target: null`
+ * when nothing is configured (so the chart can hide the line).
+ */
+export function useRoasTarget(): AsyncResult<RoasTargetResponse> {
+	const [data, setData] = useState<RoasTargetResponse | null>(null);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		let cancelled = false;
+		setLoading(true);
+		api.metrics
+			.roasTarget()
+			.then((result) => {
+				if (cancelled) return;
+				setData(result);
+				setError(null);
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				setError(err instanceof Error ? err.message : "Failed to load ROAS target.");
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	return { data, loading, error };
 }

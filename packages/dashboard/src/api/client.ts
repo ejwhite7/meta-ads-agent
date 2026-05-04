@@ -281,6 +281,22 @@ export interface MetricsSummary {
 }
 
 /**
+ * Spend-weighted ROAS reference target for the Overview chart.
+ *
+ *   source: 'campaigns'    — weighted average across campaigns whose
+ *                            primary KPI is roas (preferred).
+ *   source: 'agent_config' — falling back to the legacy account-wide
+ *                            AgentGoal.roasTarget.
+ *   source: null           — nothing configured; chart hides the line.
+ */
+export interface RoasTargetResponse {
+	target: number | null;
+	source: "campaigns" | "agent_config" | null;
+	contributors: number;
+	windowDays: number | null;
+}
+
+/**
  * Daily time-series point returned by `GET /api/metrics/timeseries`.
  * Used by the spend + ROAS line charts on the Overview page.
  */
@@ -473,6 +489,11 @@ export const api = {
 		/** Daily { spend, roas, conversions } for the spend & ROAS charts. */
 		timeseries(days = 30): Promise<MetricsTimeseries> {
 			return request<MetricsTimeseries>(`/api/metrics/timeseries?days=${days}`);
+		},
+
+		/** Spend-weighted ROAS reference target for the chart. */
+		roasTarget(): Promise<RoasTargetResponse> {
+			return request<RoasTargetResponse>("/api/metrics/roas-target");
 		},
 	},
 

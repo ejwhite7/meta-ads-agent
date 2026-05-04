@@ -644,6 +644,120 @@ export function registerDashboardCommand(program: Command): void {
 					}
 				});
 
+				/* ---- Dynamic ROAS reference target ----
+				 *
+				 * The Overview ROAS chart used to show a hardcoded `4.0x` red
+				 * dashed reference line. With per-campaign goals (PR #23) a
+				 * single account-wide ROAS target is misleading — different
+				 * campaigns can target wildly different ratios. We compute the
+				 * spend-weighted average target across campaigns whose primary
+				 * KPI is `roas`, falling back to the legacy `agent_config`
+				 * AgentGoal value, then to null (no line drawn).
+				 *
+				 * Why spend-weighted? A campaign at 90% of the spend with target
+				 * 5.0 should drive the chart's reference line near 5.0, not get
+				 * diluted by a tiny campaign at target 2.0. Equal-weight average
+				 * misrepresents what "hitting target" means at the account level.
+				 *
+				 * Live spend comes from MetaClient.insights at level=campaign
+				 * for the same lookback window the chart uses (default last_7d,
+				 * configurable via META_ADS_AGENT_DATE_PRESET). If Meta is
+				 * unavailable we still answer with the agent_config fallback so
+				 * the chart stays usable. */
+				app.get("/api/metrics/roas-target", async (c) => {
+					const datePreset = (process.env.META_ADS_AGENT_DATE_PRESET ?? "last_7d") as
+						| "today"
+						| "yesterday"
+						| "last_7d"
+						| "last_14d"
+						| "last_28d"
+						| "last_30d"
+						| "last_90d"
+						| "this_month"
+						| "last_month";
+
+					const goals = await goalRepo.listActive(cfg.metaAdAccountId);
+					const roasGoals = goals.filter(
+						(g) => g.primaryKpi === "roas" && g.primaryKpiDirection === "maximize",
+					);
+
+					/* Phase 1: try per-campaign weighted average. Only counts
+					 * campaigns whose primary KPI is roas — a campaign optimizing
+					 * for CPL doesn't have an opinion about the ROAS target line. */
+					if (roasGoals.length > 0) {
+						try {
+							const client = await getMetaClient();
+							const insights = await client.insights.query(cfg.metaAdAccountId, {
+								level: "campaign",
+								date_preset: datePreset,
+							});
+							const spendByCampaign = new Map<string, number>();
+							for (const i of insights) {
+								if (!i.campaign_id) continue;
+								const m = parseInsightsToMetrics(i);
+								spendByCampaign.set(i.campaign_id, m.spend);
+							}
+
+							let weightedSum = 0;
+							let totalWeight = 0;
+							let contributors = 0;
+							for (const g of roasGoals) {
+								const spend = spendByCampaign.get(g.campaignId) ?? 0;
+								if (spend <= 0) continue; /* zero-spend campaigns shouldn't anchor the line */
+								weightedSum += g.primaryKpiTarget * spend;
+								totalWeight += spend;
+								contributors++;
+							}
+
+							if (totalWeight > 0) {
+								return c.json({
+									target: weightedSum / totalWeight,
+									source: "campaigns",
+									contributors,
+									windowDays:
+										datePreset === "last_7d"
+											? 7
+											: datePreset === "last_30d"
+												? 30
+												: null /* let frontend handle non-numeric presets */,
+								});
+							}
+							/* All roas-KPI campaigns had zero spend. Fall through to
+							 * the equal-weight average so we still surface a number
+							 * (better than no line at all on a fresh account). */
+							const avg =
+								roasGoals.reduce((sum, g) => sum + g.primaryKpiTarget, 0) / roasGoals.length;
+							return c.json({
+								target: avg,
+								source: "campaigns",
+								contributors: roasGoals.length,
+								windowDays: null,
+							});
+						} catch {
+							/* MetaClient unavailable; fall through to agent_config. */
+						}
+					}
+
+					/* Phase 2: legacy account-wide AgentGoal from agent_config. */
+					const configRows = await dbConn.db
+						.select()
+						.from(agentConfig)
+						.where(eq(agentConfig.adAccountId, cfg.metaAdAccountId))
+						.orderBy(desc(agentConfig.createdAt))
+						.limit(1);
+					if (configRows.length > 0 && configRows[0].roasTarget > 0) {
+						return c.json({
+							target: configRows[0].roasTarget,
+							source: "agent_config",
+							contributors: 0,
+							windowDays: null,
+						});
+					}
+
+					/* Phase 3: nothing configured. Frontend hides the line. */
+					return c.json({ target: null, source: null, contributors: 0, windowDays: null });
+				});
+
 				/* ---- Configuration page wiring ----
 				 *
 				 * The dashboard's Configuration page used to render fixed defaults
