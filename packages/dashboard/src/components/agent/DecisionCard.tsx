@@ -8,7 +8,7 @@
 
 import type React from "react";
 import { useState } from "react";
-import type { AuditRecord } from "../../api/client";
+import { type AuditRecord, decisionParams, decisionStatus } from "../../api/client";
 import { cn } from "../../lib/utils";
 
 /**
@@ -35,10 +35,11 @@ const STATUS_STYLES: Record<string, { border: string; badge: string }> = {
 		border: "border-l-yellow-500",
 		badge: "bg-yellow-100 text-yellow-800",
 	},
-	skipped: {
-		border: "border-l-gray-400",
-		badge: "bg-gray-100 text-gray-800",
-	},
+};
+
+const FALLBACK_STATUS_STYLE = {
+	border: "border-l-gray-400",
+	badge: "bg-gray-100 text-gray-800",
 };
 
 /**
@@ -46,7 +47,11 @@ const STATUS_STYLES: Record<string, { border: string; badge: string }> = {
  */
 export function DecisionCard({ decision }: DecisionCardProps): React.ReactElement {
 	const [expanded, setExpanded] = useState(false);
-	const styles = STATUS_STYLES[decision.status] ?? STATUS_STYLES.skipped;
+
+	const status = decisionStatus(decision);
+	const styles = STATUS_STYLES[status] ?? FALLBACK_STATUS_STYLE;
+	const reasoning = decision.reasoning ?? "";
+	const params = decisionParams(decision);
 
 	return (
 		<div className={cn("border border-gray-200 border-l-4 rounded-lg p-4", styles.border)}>
@@ -68,15 +73,15 @@ export function DecisionCard({ decision }: DecisionCardProps): React.ReactElemen
 						styles.badge,
 					)}
 				>
-					{decision.status}
+					{status}
 				</span>
 			</div>
 
 			{/* Action summary */}
-			<p className="mt-2 text-sm text-gray-700">{JSON.stringify(decision.toolParams)}</p>
+			<p className="mt-2 text-sm text-gray-700">{JSON.stringify(params)}</p>
 
 			{/* Expandable reasoning */}
-			{decision.llmReasoning && (
+			{reasoning && (
 				<div className="mt-2">
 					<button
 						type="button"
@@ -86,9 +91,7 @@ export function DecisionCard({ decision }: DecisionCardProps): React.ReactElemen
 						{expanded ? "Hide reasoning" : "Show reasoning"}
 					</button>
 					{expanded && (
-						<p className="mt-1 text-sm text-gray-600 bg-gray-50 rounded p-2">
-							{decision.llmReasoning}
-						</p>
+						<p className="mt-1 text-sm text-gray-600 bg-gray-50 rounded p-2">{reasoning}</p>
 					)}
 				</div>
 			)}
