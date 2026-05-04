@@ -14,6 +14,8 @@ export default defineConfig({
 	},
 	build: {
 		outDir: "dist",
-		sourcemap: true,
+		/* Source maps inflate the bundled CLI tarball ~4x. Re-enable
+		 * locally with VITE_SOURCEMAP=true if you need to debug a build. */
+		sourcemap: process.env.VITE_SOURCEMAP === "true",
 	},
 });

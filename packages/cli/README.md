@@ -41,12 +41,33 @@ Configuration is stored at `~/.meta-ads-agent/config.json` with `0o600` permissi
 | `run` | Start the agent loop (daemon mode, scheduled OODA cycles) |
 | `run-once` | Execute a single OODA tick and exit |
 | `status` | Show current agent state and recent decisions |
+| `decisions` | Pretty-print the audit log with filtering (added in 0.1.1) |
+| `dashboard` | Launch the web UI + API on a single port (added in 0.1.2) |
 | `report` | Generate a performance summary for a date range |
 | `pause` | Pause a running agent session |
 | `resume` | Resume a paused agent session |
 | `config` | View or edit agent configuration |
 
 Run any command with `--help` for full usage.
+
+### Dashboard
+
+The `dashboard` command serves a React UI plus REST API on one port (default `3001`):
+
+```bash
+DASHBOARD_API_KEY=$(openssl rand -hex 16) meta-ads-agent dashboard
+# Auto-opens http://localhost:3001 in your browser.
+```
+
+Flags:
+
+| Flag | Description |
+|---|---|
+| `--port <n>` | Port to listen on (default `3001`) |
+| `--no-open` | Don't auto-open the browser |
+| `--api-key <key>` | Override the `DASHBOARD_API_KEY` env var |
+
+The dashboard reads from the same SQLite/Postgres audit DB the agent writes to, plus connects to the running daemon over the IPC socket for live status. It refuses to start without an API key unless you explicitly set `DASHBOARD_AUTH=none` (local dev only).
 
 ## How it works
 

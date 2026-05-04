@@ -42,6 +42,9 @@ export default defineConfig({
 		 * subpath external. */
 		/^drizzle-orm(\/.*)?$/,
 		"hono",
+		/* hono publishes deep subpaths (cors, logger, jsx, etc.). */
+		/^hono(\/.*)?$/,
+		/^@hono\/node-server(\/.*)?$/,
 		"axios",
 		"zod",
 		"dotenv",
@@ -56,7 +59,10 @@ export default defineConfig({
 	],
 
 	clean: true,
-	sourcemap: true,
+	/* Source maps inflate the published tarball ~3x without helping users
+	 * (they install via npm; if they need to debug, they clone the repo).
+	 * Re-enable for local development by setting TSUP_SOURCEMAP=true. */
+	sourcemap: process.env.TSUP_SOURCEMAP === "true",
 	splitting: false,
 	dts: false /* The published CLI has no library API surface. */,
 	shims: false,
