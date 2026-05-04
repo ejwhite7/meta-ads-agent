@@ -4,7 +4,7 @@ Thanks for your interest in contributing! This guide covers setup, conventions, 
 
 ## Development Setup
 
-1. **Prerequisites**: Node.js 20+, pnpm 9+, Python 3.12+ (for Meta CLI)
+1. **Prerequisites**: Node.js 20+, pnpm 9+. (No Python runtime is needed -- all Meta integration goes through the Marketing API directly via axios.)
 
 2. **Clone and install**:
    ```bash
@@ -132,7 +132,7 @@ Thanks for your interest in contributing! This guide covers setup, conventions, 
 
 4. Write tests — mock the MetaClient and assert correct parameters
 
-5. If the tool handles a CLI gap (audiences, batch, etc.), use the direct API client rather than the CLI wrapper. See CLAUDE.md section 4 for the complete list of CLI gaps.
+5. All Meta operations go through `MetaClient` (or its underlying `ApiClient`) which calls the Marketing API directly. There is no CLI wrapper -- see CLAUDE.md section 4.
 
 ## Code Style
 
