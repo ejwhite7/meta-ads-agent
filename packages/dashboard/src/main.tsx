@@ -19,6 +19,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
+/* This import is what causes Vite/PostCSS/Tailwind to actually emit a
+ * stylesheet. Without it the build produces no .css file at all and the
+ * UI renders unstyled (Tailwind classes become inert). Keep this import
+ * even though the file has no JS exports. */
+import "./index.css";
 
 const rootElement = document.getElementById("root");
 
