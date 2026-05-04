@@ -1,92 +1,112 @@
 # meta-ads-agent
 
-An open source autonomous agent for Meta (Facebook/Instagram) ads. Powered by Claude and GPT-4o, it autonomously manages campaigns, optimizes budgets, generates creative, and reports on performance — all without human intervention.
+An open-source autonomous agent for Meta (Facebook / Instagram) advertising. Pulls live performance data, reasons about it with an LLM, applies guardrailed actions to your campaigns, and grades its own decisions on the next tick.
 
-## Features
+> ⚠️ **Alpha (`0.2.x`).** Designed to run safely in `--dry-run` indefinitely. Drop the flag once you trust it on your account. Every action is recorded to an append-only audit log; nothing is silent.
 
-- **Campaign Management**: Create, pause, scale, and A/B test campaigns autonomously
-- **Budget Optimization**: Real-time reallocation, pacing alerts, bid strategy tuning
-- **Creative Generation**: LLM-powered ad copy and image prompts, creative rotation, performance-based retirement
-- **Reporting & Anomaly Detection**: Automated reports, CPA spike detection, Slack alerts
-- **Multi-Model LLM**: Pluggable adapter for Claude (Anthropic), GPT-4o (OpenAI), or local models
-- **Guardrails**: Configurable spend limits, approval thresholds, and kill switches
+## What it does
 
-## Architecture
+| Capability | How |
+|---|---|
+| **Per-campaign optimization** | Each campaign has its own goal (ROAS / CPA / CPL / CPC / CPM / cost-per-thruplay / etc.). Agent refuses to act on unconfigured campaigns and surfaces them for human guidance. |
+| **OODA tick loop** | Every interval (default 1h): pulls insights → grades prior decisions → asks LLM what to do → applies guardrailed actions. |
+| **Outcome backfill** | After each tick, fills in `actual_outcome` + `performance_delta` for previously-successful decisions so you can see what worked. |
+| **Guardrails** | Min daily budget, max scale-factor per cycle, mandatory approval threshold (account-wide defaults, per-campaign overrides). |
+| **Audit log** | Append-only. Every decision, every reasoning trace, every parameter, every outcome — queryable via CLI or dashboard. |
+| **Dashboard** | Bundled React UI with date-range filtering, served from the CLI binary on a single port. |
+| **Multi-LLM** | Claude (Anthropic) or GPT-4o (OpenAI) via a pluggable provider interface. |
 
-TypeScript monorepo with 4 packages:
-
-| Package | Purpose |
-|---------|---------|
-| `packages/core` | Agent loop (OODA), tool system, LLM adapters, decision engine |
-| `packages/meta-client` | Typed Meta Ads CLI/API client |
-| `packages/cli` | Command-line interface |
-| `packages/dashboard` | React web dashboard |
-
-## Getting Started
-
-### Prerequisites
-- Node.js 20+
-- pnpm 9+
-- Meta developer app with Marketing API access
-
-### Installation
+## Quick start
 
 ```bash
-git clone https://github.com/ejwhite7/meta-ads-agent
-cd meta-ads-agent
-pnpm install
+# install
+npm i -g meta-ads-agent           # or: pnpm i -g meta-ads-agent
+# (or run without installing: npx meta-ads-agent <command>)
+
+# one-time setup wizard
+meta-ads-agent init               # collects token + ad account + LLM key
+                                  # + per-campaign goal configuration
+
+# add goals for any campaign that doesn't have one yet
+meta-ads-agent guidance           # walks through unconfigured campaigns
+
+# safe first run
+meta-ads-agent run --dry-run --interval 5
+                                  # ticks every 5 minutes, logs decisions
+                                  # without modifying real campaigns
+
+# see what it's been thinking
+meta-ads-agent decisions --limit 20
+meta-ads-agent decisions --tool set_budget --full
+
+# launch the dashboard (web UI + API on :3001)
+DASHBOARD_API_KEY=$(openssl rand -hex 16) meta-ads-agent dashboard
 ```
 
-### Configuration
+Requires **Node.js 20+**. No Python needed — all Meta integration goes through the Marketing API directly via `axios`.
 
-```bash
-cp .env.example .env
-# Edit .env with your Meta API credentials and LLM API keys
-```
+## Architecture (one paragraph)
 
-### Run
+TypeScript monorepo, four packages: **`core`** holds the OODA loop, decision engine, audit logger, per-campaign goal repository, snapshot writer, backfill engine, and Drizzle SQLite/Postgres schema. **`meta-client`** is the direct Marketing API client (`graph.facebook.com/v21.0`). **`cli`** is the publishable `meta-ads-agent` binary — bundled by tsup, ships the React **`dashboard`** assets inside its tarball so `meta-ads-agent dashboard` works out of the box. State (config, daemon socket, SQLite DB) lives in `~/.meta-ads-agent/`.
 
-```bash
-# Initialize (interactive setup)
-pnpm cli init
-
-# Run the agent (single cycle)
-pnpm cli run
-
-# Run as a daemon (continuous)
-pnpm cli run --daemon --interval 3600
-
-# View status
-pnpm cli status
-```
-
-### Dashboard
-
-```bash
-pnpm --filter dashboard dev
-# Open http://localhost:5173
-```
+For depth: **[CLAUDE.md](CLAUDE.md)** is the canonical architectural reference. **[DESIGN.md](DESIGN.md)** explains *why* the codebase is shaped the way it is.
 
 ## Configuration
 
-See `.env.example` for all environment variables. Key settings:
+The `init` wizard writes `~/.meta-ads-agent/config.json` with `0o600` permissions. Everything is also configurable via env vars — see **[`.env.example`](.env.example)**.
 
 | Variable | Description |
-|----------|-------------|
-| `META_ACCESS_TOKEN` | Meta system user token |
-| `META_AD_ACCOUNT_ID` | Ad account ID (act_XXXXXXXXXX) |
-| `ANTHROPIC_API_KEY` | Claude API key |
-| `OPENAI_API_KEY` | GPT-4o API key |
-| `LLM_PROVIDER` | `claude` or `openai` (default: `claude`) |
-| `AGENT_TARGET_ROAS` | Target return on ad spend |
-| `AGENT_CPA_CAP` | Maximum acceptable cost per acquisition |
-| `AGENT_MIN_DAILY_BUDGET` | Minimum campaign daily budget |
-| `AGENT_MAX_BUDGET_SCALE` | Max budget increase per cycle (e.g., 1.5 = 50%) |
+|---|---|
+| `META_ACCESS_TOKEN` | Meta system-user access token (scopes: `ads_management`, `ads_read`, `business_management`, `pages_show_list`, `pages_read_engagement`, `pages_manage_ads`, `read_insights`) |
+| `META_AD_ACCOUNT_ID` | `act_XXXXXXXXX` |
+| `LLM_PROVIDER` | `claude` (default) or `openai` |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Per-provider credentials |
+| `DATABASE_MODE` | `sqlite` (default) or `postgres` |
+| `SQLITE_PATH` | Default `~/.meta-ads-agent/agent.db` |
+| `DASHBOARD_API_KEY` | Required for the dashboard server (refuses to start without it unless `DASHBOARD_AUTH=none`) |
+
+**Per-campaign goals** are stored in the SQLite/Postgres database, not env. Configure via `meta-ads-agent guidance` or in the `init` wizard.
+
+## CLI commands
+
+```
+meta-ads-agent init              Interactive setup wizard
+meta-ads-agent run [--dry-run] [--interval N]
+                                 Start the agent loop (daemon)
+meta-ads-agent run-once [--dry-run]
+                                 One OODA tick + exit
+meta-ads-agent guidance          Configure per-campaign goals (or
+                                 --list / --show / --reset / --all)
+meta-ads-agent status            Current agent state
+meta-ads-agent decisions         Audit log (with filters)
+meta-ads-agent dashboard         Launch web UI + API on one port
+meta-ads-agent report [--days N] Performance summary
+meta-ads-agent pause / resume    Pause / resume a running daemon
+meta-ads-agent config            View / edit configuration
+```
+
+Run any with `--help` for full usage.
+
+## Safety
+
+- **Refuses to act on unconfigured campaigns.** If a campaign has no entry in the goal store, it's recorded as `_pending_guidance` in the audit log and *no decision is made on it*. Configure with `meta-ads-agent guidance`.
+- **Pending actions** (proposals exceeding the configured approval threshold) are recorded but never auto-executed. They surface in `decisions --tool _pending_human_approval` and the dashboard.
+- **Audit-log halt.** The session halts itself after **3 consecutive audit-log persistence failures** — the audit trail is the system of record; we don't run blind.
+- **Dashboard auth fails closed.** The server refuses to start without `DASHBOARD_API_KEY` (or explicit `DASHBOARD_AUTH=none` for local dev).
+
+## Status
+
+`0.2.x` alpha. Smoke-tested end-to-end against real Meta accounts. Not yet load-tested against accounts with hundreds of campaigns. The dashboard's Campaigns page and a few legacy tool implementations have known rough edges tracked in GitHub issues.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup and PR conventions, and **[AGENTS.md](AGENTS.md)** if you're an AI tool (Claude Code / Cursor / Aider / etc.) working on the codebase — it's a focused quick-orientation guide.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+## Repository
+
+- **Issues**: <https://github.com/ejwhite7/meta-ads-agent/issues>
+- **Architecture**: [CLAUDE.md](CLAUDE.md) · [DESIGN.md](DESIGN.md) · [AGENTS.md](AGENTS.md)

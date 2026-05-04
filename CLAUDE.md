@@ -14,14 +14,25 @@ Comprehensive architectural reference for **meta-ads-agent** — an open-source,
 - Agencies managing multiple client ad accounts at scale
 - Developers building custom advertising automation on top of Meta's platform
 
-**Current stage:** Greenfield — the monorepo scaffold, build pipeline, and architectural contracts are in place. Core implementation is underway.
+**Current stage:** Alpha (v0.2.x), end-to-end functional. Smoke-tested against real Meta accounts; not yet load-tested at hundreds-of-campaigns scale. The dashboard's Campaigns page and a few legacy tool implementations have known rough edges tracked in GitHub issues.
 
-**Key design principles:**
+**Key design principles** (rationale + rejected alternatives in [DESIGN.md](DESIGN.md)):
 
-1. **Direct Marketing API integration** — All Meta operations go through the Marketing API at `graph.facebook.com/v21.0` via axios. The package previously routed CRUD through the official `meta-ads` Python CLI; that hybrid layer was retired because the published CLI's subcommand surface had drifted from our wrapper assumptions, breaking every CLI-backed tool at runtime. One auth flow, one rate limiter, one error model, no Python runtime dependency.
-2. **Stateless core, stateful wrapper** — Inspired by pi-mono's architecture. The agent loop itself is a pure function with no side effects. State management (sessions, persistence, retry) lives in wrapper layers.
-3. **Multi-model LLM** — Pluggable provider pattern supporting Claude (Anthropic) and GPT-4o (OpenAI) with a clean adapter interface. Adding a new provider requires implementing two methods.
-4. **Dual-mode persistence** — SQLite for local development and single-user deployment, PostgreSQL for cloud/team environments. Switchable via a single environment variable.
+1. **Direct Marketing API integration** — All Meta operations go through `graph.facebook.com/v21.0` via axios. The earlier `meta-ads` Python CLI wrapper layer was retired because the published CLI's subcommand surface had drifted from our wrapper assumptions, breaking every CLI-backed tool at runtime. One auth flow, one rate limiter, one error model, no Python runtime dependency.
+2. **Per-campaign goals.** Optimization targets (ROAS / CPA / CPL / CPC / CPM / cost-per-thruplay / etc.) are configured per individual campaign, not per account or per Meta objective. The agent **refuses to act on a campaign without an active goal** in `campaign_goals` and surfaces it via `_pending_guidance` audit rows.
+3. **Outcome backfill.** Each tick, before the OODA loop, the `BackfillEngine` fills in `actual_outcome` + `performance_delta` for previously-successful decisions whose grading window has passed. The agent's track record is queryable.
+4. **Stateless core, stateful session.** `runAgentLoop()` is a pure function. All lifecycle state (counters, timers, persistence) lives in `AgentSession`.
+5. **Multi-model LLM.** Pluggable provider pattern supporting Claude (Anthropic) and GPT-4o (OpenAI) with a clean adapter interface. Adding a new provider requires implementing two methods.
+6. **Dual-mode persistence.** SQLite for local / single-user, PostgreSQL for cloud / team. Schema is auto-bootstrapped on every connection (the published CLI ships no `.sql` files).
+7. **Single published artifact.** The CLI is the only npm package. `core` and `meta-client` are bundled into it via `tsup`; the React `dashboard` ships as static assets in the same tarball. There is no public API contract for the inner packages.
+
+## Companion documents
+
+- **[README.md](README.md)** — public-facing install + usage.
+- **[DESIGN.md](DESIGN.md)** — *why* the codebase is shaped this way; rejected alternatives.
+- **[AGENTS.md](AGENTS.md)** — fast orientation for AI tools landing in fresh threads.
+- **[SKILL.md](SKILL.md)** — skill manifest for Claude Code's skill-loader.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — human contributor process.
 
 ---
 
@@ -50,9 +61,12 @@ Comprehensive architectural reference for **meta-ads-agent** — an open-source,
 
 ```
 meta-ads-agent/
-├── CLAUDE.md                          # This file — architecture reference
-├── README.md                          # Open-source README
-├── CONTRIBUTING.md                    # Contributor guide
+├── CLAUDE.md                          # This file — architectural reference
+├── DESIGN.md                          # *Why* the codebase is shaped this way
+├── AGENTS.md                          # Quick orientation for AI tools
+├── SKILL.md                           # Skill manifest for Claude Code
+├── README.md                          # Public-facing install + usage
+├── CONTRIBUTING.md                    # Human contributor guide
 ├── LICENSE                            # MIT
 ├── package.json                       # Root pnpm workspace config
 ├── pnpm-workspace.yaml                # Workspace package glob
@@ -68,85 +82,103 @@ meta-ads-agent/
 │   ├── Dockerfile                     # Multi-stage production build
 │   └── docker-compose.yml             # App + Postgres for cloud mode
 ├── packages/
-│   ├── tsconfig/                      # Shared tsconfig package
-│   │   ├── package.json
-│   │   └── base.json
-│   ├── core/                          # Agent loop, tools, LLM adapters, DB
-│   │   ├── package.json
-│   │   ├── tsconfig.json
+│   ├── tsconfig/                      # Shared TS config (base.json)
+│   │
+│   ├── core/                          # Agent loop, tools, LLM, audit, goals,
+│   │   │                              #   snapshots, backfill, DB schema.
+│   │   │                              #   Bundled into the published CLI; not
+│   │   │                              #   exposed as its own npm package.
 │   │   └── src/
 │   │       ├── index.ts               # Public API barrel export
+│   │       ├── types.ts               # AgentGoal, CampaignMetrics, AgentAction
 │   │       ├── agent/
-│   │       │   ├── loop.ts            # Stateless core agent loop (OODA)
-│   │       │   ├── session.ts         # Stateful AgentSession wrapper
-│   │       │   └── types.ts           # AgentConfig, AgentState, Tick
+│   │       │   ├── loop.ts            # Stateless OODA cycle (filterByGoals,
+│   │       │   │                  #   prompt-with-per-campaign-goals, decision)
+│   │       │   ├── session.ts         # Stateful AgentSession (lifecycle, retry,
+│   │       │   │                  #   audit-failure halt, snapshot, backfill)
+│   │       │   └── types.ts           # AgentLoopContext, AgentLoopResult,
+│   │       │                      #   AgentSessionConfig, SessionStatus
 │   │       ├── tools/
 │   │       │   ├── registry.ts        # Map-based tool registry
-│   │       │   ├── types.ts           # Tool<TParams> interface, TypeBox schemas
+│   │       │   ├── executor.ts        # Tool execution with retry + hooks
 │   │       │   ├── hooks.ts           # Before/after tool call hooks
-│   │       │   ├── meta/              # Meta-specific tools
-│   │       │   │   ├── create-campaign.ts
-│   │       │   │   ├── update-budget.ts
-│   │       │   │   ├── pause-campaign.ts
-│   │       │   │   ├── get-insights.ts
-│   │       │   │   ├── create-audience.ts
-│   │       │   │   └── ...
-│   │       │   └── analysis/          # Analysis & decision tools
-│   │       │       ├── analyze-performance.ts
-│   │       │       ├── suggest-optimization.ts
-│   │       │       └── ...
+│   │       │   ├── types.ts           # Tool<TParams>, ToolContext, ToolResult
+│   │       │   ├── campaign/          # campaign domain (list/pause/scale/create/...)
+│   │       │   ├── budget/            # budget domain (factory pattern: see _client.ts)
+│   │       │   ├── creative/          # creative generation + analysis
+│   │       │   └── reporting/         # metrics, anomalies, Slack, exports
 │   │       ├── llm/
-│   │       │   ├── provider.ts        # LLMProvider interface
-│   │       │   ├── registry.ts        # Provider registry (lazy loading)
-│   │       │   ├── event-stream.ts    # EventStream<T,R> primitive
-│   │       │   ├── claude.ts          # ClaudeProvider (Anthropic SDK)
-│   │       │   └── openai.ts          # OpenAIProvider (OpenAI SDK)
-│   │       ├── decision/
-│   │       │   ├── engine.ts          # Decision engine (scoring, ranking)
-│   │       │   ├── goals.ts           # Goal config schema
-│   │       │   ├── guardrails.ts      # Safety constraints
-│   │       │   └── types.ts           # ActionProposal, DecisionResult
+│   │       │   ├── stream.ts          # EventStream<T,R> primitive (dual consumption)
+│   │       │   ├── registry.ts        # Lazy provider loading
+│   │       │   └── providers/{claude,openai}.ts
+│   │       ├── decisions/
+│   │       │   ├── engine.ts          # parseActions, applyGuardrails,
+│   │       │   │                  #   proposeActionsFull, extractFirstJsonArray
+│   │       │   ├── scoring.ts         # (impact * confidence) / (risk + 0.1)
+│   │       │   └── types.ts           # ActionProposal, GuardrailConfig, DecisionResult
 │   │       ├── db/
-│   │       │   ├── index.ts           # Connection factory (SQLite/Postgres)
-│   │       │   ├── schema.ts          # Drizzle table definitions
-│   │       │   ├── migrations/        # Drizzle migration files
-│   │       │   └── audit.ts           # Audit log write helpers
-│   │       └── api/
-│   │           ├── server.ts          # Hono HTTP server
-│   │           ├── routes/            # Route handlers
-│   │           └── middleware.ts      # Auth, validation, error handling
-│   ├── meta-client/                   # Meta API client (CLI + direct API)
-│   │   ├── package.json
-│   │   ├── tsconfig.json
+│   │       │   ├── index.ts           # Factory (createDatabase / createDatabaseAsync)
+│   │       │   ├── schema.ts          # Drizzle: agent_sessions, agent_decisions,
+│   │       │   │                  #   campaign_snapshots, agent_config, campaign_goals
+│   │       │   ├── bootstrap.ts       # Inlined SQL: tables → ALTERs → indexes (3-phase)
+│   │       │   └── migrations/        # 0000_initial.sql + 0001_campaign_goals.sql
+│   │       ├── audit/
+│   │       │   ├── logger.ts          # AuditLogger + onFailure / consecutive-failure
+│   │       │   ├── drizzle-adapter.ts # DrizzleAuditDatabase (SQLite/PG portable)
+│   │       │   ├── backfill.ts        # BackfillEngine (runs before OODA loop each tick)
+│   │       │   └── types.ts           # AuditRecord, PendingBackfill, BackfillUpdate
+│   │       ├── goals/                 # Per-campaign goal management
+│   │       │   ├── types.ts           # CampaignGoal, PrimaryKpi, PendingGuidance
+│   │       │   ├── repository.ts      # CampaignGoalRepository (soft-delete + history)
+│   │       │   └── defaults.ts        # inferDefaultKpi(objective)
+│   │       ├── snapshots/
+│   │       │   └── writer.ts          # DrizzleSnapshotWriter (per-tick batched insert)
+│   │       └── config/
+│   │           ├── index.ts           # loadConfig (env + ~/.meta-ads-agent/config.json)
+│   │           └── types.ts           # AgentConfigSchema (Zod)
+│   │
+│   ├── meta-client/                   # Direct Marketing API client (axios)
 │   │   └── src/
 │   │       ├── index.ts               # Public API
-│   │       ├── cli/
-│   │       │   ├── executor.ts        # Spawn `meta ads` subprocess
-│   │       │   ├── parser.ts          # Parse JSON/plain output
-│   │       │   └── commands.ts        # Typed wrappers for all 47 CLI commands
-│   │       ├── api/
-│   │       │   ├── client.ts          # axios-based Marketing API client
-│   │       │   ├── audiences.ts       # Custom/Lookalike audience operations
-│   │       │   ├── batch.ts           # Batch API operations
-│   │       │   ├── ab-testing.ts      # A/B test creation and management
-│   │       │   └── ad-rules.ts        # Automated ad rules engine
-│   │       ├── rate-limit.ts          # Per-account token budget tracker
-│   │       └── auth.ts               # Token storage and retrieval
-│   ├── cli/                           # CLI application (publishable as npx)
-│   │   ├── package.json
-│   │   ├── tsconfig.json
+│   │       ├── client.ts              # MetaClient facade composing endpoints
+│   │       ├── errors.ts              # MetaError, RateLimitError, AuthError, etc.
+│   │       ├── types.ts               # Campaign, AdSet, Ad, AdCreative, Insights*
+│   │       └── api/
+│   │           ├── client.ts          # ApiClient (axios + retry + rate limit)
+│   │           ├── rate-limiter.ts    # BUC header parsing + per-account budget
+│   │           └── endpoints/         # campaigns, adsets, ads, creatives,
+│   │                                  #   insights, audiences, batch,
+│   │                                  #   split-tests, rules, previews
+│   │
+│   ├── cli/                           # The publishable `meta-ads-agent` binary
+│   │   ├── package.json               # bin: meta-ads-agent, version 0.2.x
+│   │   ├── tsup.config.ts             # Bundles core + meta-client (noExternal)
+│   │   ├── scripts/copy-dashboard-static.mjs  # Copies dashboard build into bundle
+│   │   ├── dashboard-static/          # GENERATED on `pnpm build` (gitignored)
 │   │   └── src/
-│   │       ├── index.ts               # Entry point (#!/usr/bin/env node)
-│   │       ├── commands/              # commander.js command definitions
-│   │       └── ui/                    # inquirer prompts, chalk formatting
-│   └── dashboard/                     # React web UI
-│       ├── package.json
-│       ├── tsconfig.json
+│   │       ├── index.ts               # commander.js entry (shebang via tsup banner)
+│   │       ├── commands/              # init, run, run-once, status, decisions,
+│   │       │                          #   guidance, dashboard, report, pause,
+│   │       │                          #   resume, config
+│   │       ├── daemon/                # ipc client/server, manager (lifecycle)
+│   │       └── utils/                 # display, logger (winston + splat), errors
+│   │
+│   └── dashboard/                     # React SPA (Vite + Tailwind)
+│       ├── vite.config.ts             # source maps gated on VITE_SOURCEMAP env
+│       ├── server.ts                  # Standalone Hono server (dev only)
 │       └── src/
-│           ├── main.tsx               # React entry point
-│           ├── components/            # shadcn/ui components
-│           ├── pages/                 # Dashboard pages
-│           └── hooks/                 # React hooks for API calls
+│           ├── main.tsx               # React entry; imports index.css for Tailwind
+│           ├── index.css              # @tailwind base/components/utilities
+│           ├── App.tsx, components/, pages/, hooks/
+│           ├── lib/date-range.tsx     # DateRangeProvider context + presets
+│           ├── components/DateRangePicker.tsx  # header date range picker
+│           └── api/client.ts          # AuditRecord matches core's schema exactly
+│
+└── ~/.meta-ads-agent/                 # PER-USER STATE (outside the repo)
+    ├── config.json                    # 0o600 -- token, account ID, LLM keys
+    ├── agent.db                       # SQLite (auto-bootstrapped on connect)
+    ├── agent.sock                     # Unix socket for daemon IPC
+    └── daemon.json                    # PID + sessionId for cross-process coord
 ```
 
 ---
@@ -481,22 +513,51 @@ Meta's Marketing API uses a Business Use Case (BUC) rate-limiting system with pe
 
 ## 5. Decision Engine
 
-The decision engine translates performance data and goals into ranked action proposals.
+The decision engine translates performance data + per-campaign goals into ranked action proposals. Goals are **per-campaign**, not per-account or per-objective — see [DESIGN.md §2](DESIGN.md).
 
-### Goal Configuration Schema
+### Goal Configuration
+
+Two layers:
+
+**Account-wide goal** (legacy `AgentGoal` type, kept for backwards compat):
 
 ```typescript
-const GoalConfig = Type.Object({
-  roasTarget: Type.Number({ minimum: 0, description: "Target ROAS (e.g., 4.0 = 400%)" }),
-  cpaCap: Type.Number({ minimum: 0, description: "Maximum cost per acquisition" }),
-  dailyBudgetLimit: Type.Number({ minimum: 0, description: "Max daily spend across all campaigns" }),
-  riskLevel: Type.Union([
-    Type.Literal("conservative"),
-    Type.Literal("moderate"),
-    Type.Literal("aggressive"),
-  ], { default: "moderate" }),
-});
+interface AgentGoal {
+  roasTarget: number;        // legacy; not authoritative for new tools
+  cpaCap: number;            // legacy
+  dailyBudgetLimit: number;  // account-wide spend cap (still authoritative)
+  riskLevel: "conservative" | "moderate" | "aggressive";
+}
 ```
+
+**Per-campaign goal** (`campaign_goals` table, the source of truth for per-tool decisions):
+
+```typescript
+interface CampaignGoal {
+  adAccountId: string;
+  campaignId: string;
+  primaryKpi: "roas" | "cpa" | "cpl" | "cpc" | "ctr" | "cpm" | "cpi"
+            | "cost_per_thruplay" | "thruplay_rate" | "frequency" | "reach";
+  primaryKpiTarget: number;
+  primaryKpiDirection: "maximize" | "minimize";
+  secondaryKpis: SecondaryKpi[];                  // observational only
+  minDailyBudget: number | null;                  // override of account-wide guardrail
+  maxBudgetScaleFactor: number | null;            // override
+  requireApprovalAbove: number | null;            // override
+  lastSeenObjective: string;                      // for drift detection
+  configuredAt: string;
+  configuredBy: "init-wizard" | "guidance-cmd" | "dashboard" | "api";
+  notes: string | null;
+  deletedAt: string | null;                       // soft-delete tombstone
+}
+```
+
+**Critical semantics:**
+
+- **No goal → no action.** A campaign without an active goal in `campaign_goals` is recorded as `_pending_guidance` in the audit log and *no decision is made on it*. The agent loop's `filterByGoals` partitions campaigns into `actionable` and `pendingGuidance` buckets; only the actionable subset enters the LLM prompt.
+- **Objective drift triggers re-prompt.** If a campaign's live `objective` differs from the goal's `lastSeenObjective`, the goal is soft-deleted in place and the campaign re-routes to pending guidance. The audit log captures the reason.
+- **Soft-delete + history-by-insert.** Every reconfigure or reset inserts a new row. Active goal = most-recent row regardless of `deletedAt`, with a code-side check on that row's `deletedAt`. The naive `WHERE deletedAt IS NULL ORDER BY ... LIMIT 1` returns the wrong row when a tombstone exists — see [DESIGN.md §3](DESIGN.md) for the full rationale.
+- **Default KPI inference (`inferDefaultKpi`)** suggests sensible per-objective defaults in the wizard (`OUTCOME_SALES → roas/3.0/maximize`, `OUTCOME_LEADS → cpl/$25/minimize`, etc.). Defaults are **never applied automatically** — always shown to the operator for confirmation.
 
 ### Action Proposal Ranking
 
@@ -515,13 +576,16 @@ Proposals are sorted by score descending. The top N actions are executed (N depe
 
 ### Guardrails
 
-Hard constraints that override the decision engine:
+Hard constraints that override the decision engine. Each guardrail can be **overridden per campaign** via the corresponding `campaign_goals` column (NULL = inherit account-wide default):
 
-- **Minimum budget floor**: No campaign budget can be set below $5/day (configurable)
-- **Max scale factor**: Budget cannot increase more than 2x per cycle (conservative), 3x (moderate), or 5x (aggressive)
-- **Prohibited actions**: Cannot delete campaigns, cannot change campaign objectives, cannot modify payment settings
-- **Spend velocity**: If daily spend exceeds 120% of `dailyBudgetLimit`, pause all scaling actions
-- **Cool-down period**: After a major change (budget > 50% increase), wait 2 ticks before modifying the same entity
+- **Minimum budget floor**: No campaign budget can be set below `min_daily_budget` (account default $5).
+- **Max scale factor**: Budget cannot increase more than `max_budget_scale_factor` per cycle (account default 2.0x).
+- **Approval threshold**: Budget changes above `require_approval_above` (account default $1000) become `_pending_human_approval` audit rows instead of executing.
+- **Prohibited actions**: Cannot delete campaigns, cannot change campaign objectives, cannot modify payment settings.
+- **Spend velocity**: If daily spend exceeds 120% of `dailyBudgetLimit`, pause all scaling actions.
+- **Cool-down period**: After a major change (budget > 50% increase), wait 2 ticks before modifying the same entity.
+
+> Note: per-campaign override **enforcement** is wired through the schema and read paths but the executor still uses account-wide defaults. Wiring the overrides into `applyGuardrails` is queued (see [DESIGN.md "Decisions still pending"](DESIGN.md)).
 
 ### Decision Output Format
 
@@ -539,125 +603,244 @@ interface DecisionResult {
 
 ## 6. Audit & Decision Log
 
-Every tool invocation is recorded in the `agent_decisions` table. This log is **append-only** — records are never updated or deleted.
+Every tool invocation is recorded in the `agent_decisions` table. This log is **append-only** — records are never updated or deleted, only INSERTed and (for backfill) UPDATEd in-place to fill `actual_outcome` and `performance_delta` columns.
 
-### Table Schema
+### Table Schema (as it exists in code)
+
+Field names match the Drizzle schema's TypeScript field names exactly. **The dashboard frontend reads these verbatim**; do not rename without coordinating across `core/audit/types.ts`, `core/db/schema.ts`, and `dashboard/src/api/client.ts:AuditRecord`.
 
 ```sql
 CREATE TABLE agent_decisions (
-  id            TEXT PRIMARY KEY,          -- ULID
-  timestamp     DATETIME NOT NULL,         -- When the action was taken
-  session_id    TEXT NOT NULL,             -- Links to the agent session
-  tool_name     TEXT NOT NULL,             -- Which tool was invoked
-  tool_params   TEXT NOT NULL,             -- JSON: parameters passed to the tool
-  llm_reasoning TEXT NOT NULL,             -- LLM's explanation for this action
-  input_metrics TEXT NOT NULL,             -- JSON: performance data that informed the decision
-  expected_outcome TEXT,                   -- JSON: what the agent predicted would happen
-  actual_outcome   TEXT,                   -- JSON: what actually happened (filled on next tick)
-  performance_delta TEXT,                  -- JSON: diff between expected and actual
-  status        TEXT NOT NULL DEFAULT 'pending' -- pending | executed | failed | skipped
+  id                TEXT PRIMARY KEY,        -- UUID v4
+  session_id        TEXT NOT NULL,           -- AgentSession that produced this decision
+  ad_account_id     TEXT NOT NULL,           -- act_XXXXXXXXX
+  tool_name         TEXT NOT NULL,           -- registered tool name OR synthetic _pending_*
+  params            TEXT NOT NULL,           -- JSON: parameters passed to the tool
+  reasoning         TEXT NOT NULL,           -- LLM's explanation
+  expected_outcome  TEXT NOT NULL,           -- LLM's prediction OR PENDING_GUIDANCE / PENDING_HUMAN_APPROVAL
+  score             REAL NOT NULL,           -- (impact * confidence) / (risk + 0.1)
+  risk_level        TEXT NOT NULL,           -- 'low' | 'medium' | 'high'
+  success           INTEGER NOT NULL,        -- 0/1; pending-* rows have success=0
+  result_data       TEXT,                    -- JSON: tool's structured result
+  error_message     TEXT,                    -- non-null when success=0
+  -- Backfilled by BackfillEngine on a subsequent tick (see §6.5):
+  actual_outcome    TEXT,                    -- JSON: actual metrics one tick later
+  performance_delta TEXT,                    -- JSON: per-field diff vs the pre-decision baseline
+  timestamp         TEXT NOT NULL            -- ISO 8601
 );
 ```
+
+Indexes (created by `bootstrap.ts`):
+
+- `idx_decisions_session_id`, `idx_decisions_ad_account`, `idx_decisions_timestamp`, `idx_decisions_tool_name` — hot read paths.
+- `idx_agent_decisions_pending_backfill (ad_account_id, success, actual_outcome)` — keeps the per-tick backfill scan O(pending), not O(all decisions ever).
+
+### Synthetic tool names (don't filter these out without reason)
+
+Not every audit row represents an executed tool. Three synthetic toolNames carry distinct semantics:
+
+| `tool_name` | `expected_outcome` | Meaning |
+|---|---|---|
+| Real tool name (`set_budget`, `pause_campaign`, etc.) | LLM's prediction | A real action was attempted; `success` says whether it worked. |
+| `_pending_human_approval` | `PENDING_HUMAN_APPROVAL` | Proposal exceeded the approval threshold; recorded but never executed. |
+| `_pending_guidance` | `PENDING_GUIDANCE` | Campaign has no goal in `campaign_goals`, or its objective drifted, or its goal was reset. The agent refuses to act on it. |
+
+When building tools or queries that count "actions taken," filter `tool_name NOT LIKE '\_%'` (and remember to escape the underscore in your dialect).
 
 ### Write Pattern
 
 ```typescript
-// On tool invocation:
-await auditLog.record({
-  sessionId: session.id,
-  toolName: "update_budget",
-  toolParams: { campaignId: "123", dailyBudget: 50 },
-  llmReasoning: "Campaign 123 has ROAS 5.2 (above target 4.0) with stable CPA...",
-  inputMetrics: currentMetrics,
-  expectedOutcome: { roas: 4.8, spend: 50 },
-  status: "executed",
+/* On tool invocation */
+await auditLogger.logDecision({
+  sessionId, adAccountId, toolName: "set_budget",
+  params: { campaignId: "123", dailyBudget: 50 },
+  reasoning: "Campaign 123 has ROAS 5.2 above target 3.0 with stable CPA...",
+  expectedOutcome: "Higher delivery, ROAS may dip 0.2-0.4",
+  score: 0.84, riskLevel: "low", success: true,
+  resultData: { newBudget: 50 }, errorMessage: null,
 });
 
-// On the NEXT tick, backfill actual outcomes:
-await auditLog.backfillOutcomes(previousDecisionIds, actualMetrics);
+/* On a subsequent tick, BackfillEngine grades the prior decision: */
+await auditLogger.backfillOutcomes([{
+  decisionId: "...",
+  actualOutcome: { roas: 4.9, spend: 49.83, impressions: 12000, ... },
+  performanceDelta: { roas_delta: -0.3, spend_delta: 9.83, baselineRecordedAt: "..." },
+}]);
 ```
 
-**Important**: Never delete audit records. They form the ground truth for measuring agent effectiveness and debugging regressions. The `performance_delta` field enables the agent to learn from past decisions over time.
+### Halt-on-failure
+
+The AuditLogger exposes `onFailure(listener)` and `getConsecutiveFailures()`. The session registers a listener that **halts the agent after 3 consecutive audit-log persistence failures** — the audit trail is the system of record; we don't run blind. See `agent/session.ts`.
+
+### Outcome backfill (sub-section 6.5)
+
+`BackfillEngine.run(currentMetrics, adAccountId)` runs **before** the OODA loop on every tick:
+
+1. Lists successful prior-tick decisions for this account where `actual_outcome IS NULL` (oldest first — an outage backlog drains chronologically).
+2. For each: extracts `campaignId` from `params` (canonical `campaignId`, fallback `campaign_id`).
+3. Looks up the latest pre-decision snapshot in `campaign_snapshots` via the `(campaign_id, recorded_at)` index — this is the metrics the agent saw when it decided.
+4. `actualOutcome` = current campaign metric snapshot.
+5. `performanceDelta` = current minus baseline, per numeric field, plus `baselineRecordedAt` for traceability.
+6. Persists via `auditLogger.backfillOutcomes()`.
+
+Failure isolation is **per-row**: a corrupt decision doesn't poison the rest of the batch. Backfill failures are logged with `console.warn` and swallowed — backfill problems must never abort an OODA tick. Returns a `BackfillRunResult` with per-row counts (`pendingCount`, `backfilledCount`, `skippedNoCurrentMetrics`, `skippedNoCampaignId`, `errored`).
+
+Edge cases handled (each has a comment + test in `audit/backfill.test.ts`):
+
+| Case | Behavior |
+|---|---|
+| No pre-decision snapshot (decision predates the snapshot writer) | `actualOutcome` set, `performanceDelta` null |
+| Account-wide tools (params has no `campaignId`) | Row stays pending forever (correct) |
+| Campaign paused/deleted between decision and backfill | Stays pending, retries next tick |
+| Failed decisions (`success=false`) | Never picked up; grading meaningless |
+| Multi-tenant | All queries scoped by `adAccountId` |
+| Idempotent | Once `actualOutcome` is non-null, never re-enters pending set |
+
+**Important**: Never delete audit records. They form the ground truth for measuring agent effectiveness and debugging regressions.
 
 ---
 
 ## 7. Database
 
-### ORM and Migration
+### ORM and bootstrap
 
-- **Drizzle ORM** for type-safe schema definitions and queries
-- Migrations stored in `packages/core/src/db/migrations/`
-- Migration files are generated via `drizzle-kit generate` and applied via `drizzle-kit migrate`
+- **Drizzle ORM** for type-safe schema definitions and queries.
+- Schema lives in `packages/core/src/db/schema.ts`.
+- **Schema is auto-bootstrapped on every connection.** The published CLI is a single bundled JS file with no `.sql` sidecars to ship, so we inline the schema as string constants and apply them on every `createDatabase()` call. All statements are `IF NOT EXISTS` / idempotent.
+- Hand-written migration files live in `packages/core/src/db/migrations/` for drizzle-kit users; they are kept in sync with `bootstrap.ts` by hand.
+
+### Three-phase bootstrap (read this before changing the schema)
+
+`bootstrapSqliteSchema()` runs three explicit phases. **Order matters — see [DESIGN.md §8](DESIGN.md):**
+
+1. **`SQLITE_BOOTSTRAP_TABLES_SQL`** — `CREATE TABLE IF NOT EXISTS` for every table.
+2. **`SQLITE_BOOTSTRAP_ALTERS`** — idempotent `ALTER TABLE ... ADD COLUMN` statements; "duplicate column name" errors are swallowed. This handles the upgrade path for legacy DBs.
+3. **`SQLITE_BOOTSTRAP_INDEXES_SQL`** — `CREATE INDEX IF NOT EXISTS`. Must run AFTER the ALTERs so any index that references a newly-added column (e.g. `idx_agent_decisions_pending_backfill` on `actual_outcome`) can resolve it.
+
+When adding a new column to an existing table, you MUST add an entry to `SQLITE_BOOTSTRAP_ALTERS` so legacy DBs get it. Adding to the `CREATE TABLE` block alone only helps fresh DBs.
 
 ### Connection Factory
 
-The database connection is created at startup based on the `DATABASE_MODE` environment variable:
-
 ```typescript
-function createDatabase(mode: "sqlite" | "postgres"): Database {
-  if (mode === "sqlite") {
-    return drizzle(new BetterSqlite3("meta-ads-agent.db"));
-  } else {
-    return drizzle(new Pool({ connectionString: process.env.DATABASE_URL }));
-  }
-}
+import { createDatabase } from "@meta-ads-agent/core";
+
+const conn = createDatabase({
+  type: "sqlite",                                  // or "postgres"
+  sqlitePath: "~/.meta-ads-agent/agent.db",        // default; override via SQLITE_PATH
+  postgresUrl: process.env.DATABASE_URL,
+});
+const db = conn.db;                                // Drizzle handle
+conn.close();
 ```
+
+The default `sqlitePath` is `~/.meta-ads-agent/agent.db` (resolved at call time, not module load) so the daemon and any client tool converge on the same file regardless of cwd. Users who run an older relative-path config see a one-time migration warning with the exact `mv` command on first bootstrap. See [DESIGN.md §9](DESIGN.md).
 
 ### Tables
 
-- `agent_sessions` — Active/completed agent run sessions
-- `agent_decisions` — Audit log (see section 6)
-- `campaign_snapshots` — Point-in-time campaign performance snapshots
-- `goal_configs` — User-defined optimization goals
-- `rate_limit_state` — Per-account API rate limit tracking
+| Table | Purpose |
+|---|---|
+| `agent_sessions` | Active / completed agent run sessions; tracks state, iteration count, last error |
+| `agent_decisions` | Append-only audit log (see §6) |
+| `campaign_snapshots` | Per-tick performance snapshots; written by `DrizzleSnapshotWriter`, read by the dashboard's `/api/campaigns` and the `BackfillEngine` |
+| `agent_config` | Stored goal configuration per ad account (legacy account-wide goals) |
+| `campaign_goals` | Per-campaign goals (see §5); soft-delete + history-by-insert |
 
 ### Migration Commands
 
 ```bash
-# Generate a migration after schema changes
+# Generate a Drizzle migration file after schema changes (does NOT replace bootstrap.ts):
 pnpm --filter @meta-ads-agent/core drizzle:generate
 
-# Apply pending migrations
+# Apply pending Drizzle migrations against a Postgres URL (dev tooling):
 pnpm --filter @meta-ads-agent/core drizzle:migrate
-
-# Drop and recreate (development only)
-pnpm --filter @meta-ads-agent/core drizzle:reset
 ```
+
+Production users do not run migrations — the auto-bootstrap path runs on every connection and converges to the right schema on both fresh and legacy DBs.
 
 ---
 
-## 8. API (Dashboard Backend)
+## 8. Dashboard
 
-The dashboard backend is built with **Hono**, a lightweight, edge-compatible HTTP framework.
+The dashboard ships **inside the published CLI tarball** as static React assets. Operators run `meta-ads-agent dashboard` and get a single Hono server serving both the SPA and the REST API on one port. See [DESIGN.md §6](DESIGN.md) for why we bundle rather than publish a separate package.
+
+### Architecture
+
+```
+Vite build (packages/dashboard)
+        ↓   (postbuild script: scripts/copy-dashboard-static.mjs)
+packages/cli/dashboard-static/{index.html, assets/*}    ← ships in npm tarball
+        ↓   (at runtime)
+meta-ads-agent dashboard
+        ↓
+Hono server on one port (default :3001) serving:
+  GET /                        → index.html with API key script-injected (§8.4)
+  GET /assets/*                → static (JS bundle, CSS)
+  GET /api/status              → latest session row OR live IPC daemon
+  GET /api/decisions           → audit log (limit/offset/startDate/endDate)
+  GET /api/campaigns           → campaign_snapshots
+  POST /api/control/{pause,resume,run-once}
+                               → IPC fan-out to running daemon + DB state update
+```
 
 ### Routes
 
 | Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/status` | Agent status (running/paused/stopped), current session info, last tick time |
-| `GET` | `/decisions` | Paginated list of agent decisions with filters (date range, tool, status) |
-| `GET` | `/campaigns` | Current campaign data with latest performance metrics |
-| `POST` | `/control/pause` | Pause the agent loop (completes current tick, then stops) |
-| `POST` | `/control/resume` | Resume the agent loop from paused state |
-| `POST` | `/control/run` | Trigger an immediate OODA cycle (ad-hoc run) |
+|---|---|---|
+| `GET` | `/api/status` | Agent state, session id, last/next tick |
+| `GET` | `/api/decisions` | Paginated audit log; `limit`/`offset`/`startDate`/`endDate` query params |
+| `GET` | `/api/campaigns` | Latest `campaign_snapshots` rows |
+| `POST` | `/api/control/pause` | Pauses running daemon via IPC + updates DB state |
+| `POST` | `/api/control/resume` | Resumes paused daemon |
+| `POST` | `/api/control/run-once` | Triggers an immediate OODA tick |
 
-### Authentication
+### Authentication — fails closed
 
-All routes require an `X-API-Key` header. The key is configured via the `DASHBOARD_API_KEY` environment variable. Invalid or missing keys return `401 Unauthorized`.
+The server **refuses to start** unless one of:
+
+- `DASHBOARD_API_KEY=<secret>` is set in env, OR
+- `DASHBOARD_AUTH=none` is set explicitly (local dev only).
+
+No silent permissive defaults. The API-key check uses `crypto.timingSafeEqual` for constant-time comparison.
 
 ```typescript
-app.use("*", async (c, next) => {
-  const apiKey = c.req.header("X-API-Key");
-  if (apiKey !== process.env.DASHBOARD_API_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  await next();
-});
+import { timingSafeEqual } from "node:crypto";
+import { Buffer } from "node:buffer";
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
 ```
 
-### Server Startup
+### API key auto-injection
 
-The Hono server runs inside `packages/core` alongside the agent loop. Default port: `3000` (configurable via `DASHBOARD_PORT`).
+The React frontend reads its API key from `localStorage["meta-ads-agent-api-key"]`. On a clean browser profile that storage is empty → every `/api/*` returns 401 → user is stuck with no recovery path. To avoid that, the server **injects a tiny bootstrap script into the served `index.html`** that primes `localStorage` from the server's process env on first load:
+
+```html
+<script>
+(function(){try{
+  var k = "<api-key>";  // JSON.stringify-escaped server-side
+  var s = window.localStorage;
+  if (s.getItem("meta-ads-agent-api-key") !== k)
+    s.setItem("meta-ads-agent-api-key", k);
+}catch(e){}})();
+</script>
+```
+
+Three routes serve `index.html`: `/`, `/index.html`, and the SPA fallback `*`. Static assets bypass injection. See `cli/src/commands/dashboard.ts:serveIndex` and [DESIGN.md §7](DESIGN.md).
+
+### CORS
+
+Default: same-origin only (the bundled command serves SPA + API from the same port). Override with `DASHBOARD_CORS_ORIGIN=<url>`. In production (`NODE_ENV=production`), the server refuses to start without an explicit `DASHBOARD_CORS_ORIGIN`.
+
+### Frontend conventions
+
+- **`AuditRecord` field names match the backend schema exactly** (`reasoning`, `params`, `expectedOutcome`, `success`, `riskLevel`, etc.) — NOT the legacy aspirational shape (`llmReasoning`, `toolParams`, `status`). The dashboard server returns Drizzle rows verbatim. See `dashboard/src/api/client.ts`.
+- **Status is derived, not stored.** `decisionStatus(d)` returns `pending | executed | failed`: pending iff `expectedOutcome === "PENDING_HUMAN_APPROVAL"` or `"PENDING_GUIDANCE"`, else `success ? executed : failed`.
+- **Date range is global state.** `lib/date-range.tsx` provides a React context (`useDateRange()`) consumed by every page. Persisted to `localStorage`; preset-based ranges rehydrate against today's date.
+- **Frontend filters apply client-side** for `status` and `search`; date range is sent server-side via `startDate`/`endDate` query params. Tool-name filtering server-side is queued.
 
 ---
 
@@ -818,37 +1001,55 @@ describe("Agent Loop E2E", () => {
 
 ## 13. Known Agent Failure Patterns
 
-These are specific failure modes identified during architecture analysis. Every contributor should be aware of them.
+Failure modes we've actually hit (not theoretical) during development. Every contributor should know these because they bite first-time users.
 
-### Meta CLI Failure Patterns
+### Marketing API
 
-1. **CLI process hangs**: The `meta ads` subprocess may hang on network issues. Always set a timeout on `spawn()` (default: 30 seconds). Kill the process and retry on timeout.
+1. **Marketing API surface drift.** Meta versions the API (`v21.0` today). When upgrading the version string in `meta-client/src/api/client.ts`, audit each endpoint module: field lists, enum values (objectives, optimization goals), and required-parameter sets all evolve between versions.
 
-2. **JSON parse failures**: The CLI's `--output json` mode may emit warnings or progress text to stdout before the JSON payload. The parser must strip non-JSON prefixes and handle malformed output gracefully.
+2. **Granular scope restrictions.** A token with `ads_management`/`ads_read` scopes still rejects `act_XXX` calls with `(#200) Ad account owner has NOT grant ads_management or ads_read permission` if the token's `granular_scopes.target_ids` doesn't include that account. Diagnose with `GET /debug_token`. Fix: regenerate the token with the account explicitly selected.
 
-3. **Auth token expiry confusion**: System user tokens are permanent, but the underlying app may be deactivated or permissions revoked. Exit code 3 (auth error) should trigger a full token validation flow, not just a retry.
+3. **App-level access tier.** Even with correct scopes + granular allowlist + system user assignment, the Meta App that issued the token must have at least Standard Access for `ads_management` / `ads_read` (or the system user must be a Developer/Admin of the app). Symptom is the same `(#200)` error.
 
-4. **Marketing API surface drift**: Meta versions the Marketing API (`v21.0` today). When upgrading the version string in `packages/meta-client/src/api/client.ts`, audit each endpoint module's field list -- field names, valid values for enums (objectives, optimization goals), and required-parameter sets all evolve between versions.
+4. **Rate limit budget tracking.** The Marketing API uses Business Use Case (BUC) rate limiting per ad account. The `RateLimiter` parses `x-business-use-case-usage` headers from every response and blocks new requests when usage exceeds the threshold (default 75%). Don't bypass it for "just one quick call" — the budget is shared and a 429 burns goodwill.
 
-5. **Rate limit blindness**: The CLI does not expose rate limit headers. The rate limit tracker must parse headers from direct API calls AND estimate CLI-induced usage based on command frequency.
+### Agent Loop
 
-### Agent Loop Failure Patterns
+5. **Stateless loop state leakage.** `runAgentLoop` must not capture mutable closures or module-level state. All state flows through `AgentLoopContext`. Violations break testability and create race conditions if we ever run multiple agents in one process.
 
-6. **Stateless loop state leakage**: The core loop function must not capture mutable closures or module-level state. All state flows through function parameters. Violations break testability and create race conditions in concurrent usage.
+6. **LLM hallucinated tool calls.** The LLM may generate tool calls with invalid parameters (negative budgets, nonexistent campaign IDs). TypeBox schema validation in the executor catches type errors; business-logic validation (campaign existence, etc.) is the tool's responsibility.
 
-7. **LLM hallucinated tool calls**: The LLM may generate tool calls with invalid parameter values (e.g., negative budgets, nonexistent campaign IDs). TypeBox schema validation catches type errors; business-logic validation (e.g., campaign existence) must also run before execution.
+7. **Brittle JSON extraction.** Early versions used `/\[[\s\S]*?\]/` regex to pull the actions array out of LLM output — broke on markdown code fences, inline arrays in prose, nested arrays in `params`, and brackets inside string literals. Use `extractFirstJsonArray` from `decisions/engine.ts` which prefers `<actions>...</actions>` blocks and uses balanced-bracket scanning with string-literal awareness.
 
-8. **Decision feedback loop amplification**: If the agent scales a well-performing campaign and performance subsequently dips (common after scaling), it may overcorrect by pausing the campaign entirely. The cool-down period and max scale factor guardrails exist specifically to prevent this oscillation.
+8. **Decision feedback loop amplification.** Agent scales a well-performing campaign → performance dips slightly post-scale (common, due to learning re-entry) → agent overcorrects by pausing. The cool-down + max-scale-factor guardrails exist specifically to prevent this oscillation. Don't disable them for "experiments" without simulating the feedback dynamics.
 
-9. **EventStream consumer abandonment**: If the async iterator of an EventStream is abandoned (loop breaks early), the underlying HTTP connection may leak. The `abort()` method must be called in `finally` blocks, and providers must handle abort gracefully (no unhandled promise rejections).
+9. **EventStream consumer abandonment.** If the async iterator of an EventStream is abandoned (caller breaks out of `for await`), the upstream HTTP connection may leak. Use `await stream.result()` for the simple case — don't iterate and await both, that's the redundant pattern fixed in PR #15.
 
-10. **Provider SDK version drift**: The Anthropic and OpenAI SDKs evolve rapidly. Pin exact versions in `package.json` and test against specific API behaviors. A new SDK version that changes streaming event shapes will silently break the provider implementation.
+10. **Provider SDK version drift.** Anthropic and OpenAI SDKs evolve rapidly. Pin exact versions in `package.json`. A new SDK version that changes streaming event shapes will silently break the provider implementation — our integration tests pin SDK behavior.
 
-### Database Failure Patterns
+### Audit & Goals
 
-11. **SQLite concurrent write contention**: SQLite in WAL mode handles concurrent reads well but can fail on concurrent writes. In local mode, ensure only one agent process writes at a time. Use a file lock or startup check.
+11. **Audit-failure halt.** Three consecutive `auditLogger.logDecision` failures and the session halts itself (`state = "error"`, timer cancelled). The audit log is the system of record; we don't run blind. Don't increase the threshold without a serious reason.
 
-12. **Migration ordering in dual-DB mode**: Drizzle migrations must be compatible with both SQLite and PostgreSQL dialects. Avoid Postgres-specific features (e.g., `JSONB`, array columns, `RETURNING *` without compatibility shims). Test migrations against both backends in CI.
+12. **Soft-delete tombstone subtlety.** `CampaignGoalRepository.getActive` selects the most-recent row regardless of `deletedAt`, then returns `null` if that row is a tombstone. The naive `WHERE deletedAt IS NULL ORDER BY ... LIMIT 1` returns the *prior* live row when a tombstone exists — the opposite of intent. There's a regression test for this; if you bypass the repository, replicate the logic + test.
+
+13. **Synthetic tool-name filtering.** Tools whose name starts with `_` (`_pending_human_approval`, `_pending_guidance`) are audit-log-only synthetics, not real tool invocations. Queries that count "actions taken" should filter `tool_name NOT LIKE '_%'` (escape underscore in your dialect).
+
+### Database
+
+14. **SQLite concurrent write contention.** SQLite in WAL mode handles concurrent reads but serializes writes. In local mode, only one daemon writes; the dashboard server (read-only) and CLI tools (mostly read) are fine alongside. There's a daemon PID file in `~/.meta-ads-agent/daemon.json` for cross-process coordination.
+
+15. **Three-phase bootstrap ordering.** When adding a new column referenced by an index: column goes in `SQLITE_BOOTSTRAP_ALTERS`, index goes in `SQLITE_BOOTSTRAP_INDEXES_SQL`. **Do not** put the index in the TABLES block — legacy DBs will blow up with `no such column` because the ALTER hasn't run yet. PR #19 caught this; [DESIGN.md §8](DESIGN.md) has the full rationale.
+
+16. **Postgres dialect parity.** Schema is currently SQLite-typed. Postgres works for inserts/selects but `mode: "boolean"` and `text enum` types don't fully translate. Don't use SQLite-specific features (`AUTOINCREMENT`, `PRIMARY KEY` without explicit type) in new tables — audit them against both backends.
+
+### Dashboard
+
+17. **Field-shape mismatch between frontend and backend.** The original dashboard scaffold used aspirational field names (`llmReasoning`, `toolParams`, `status`) that didn't match the actual `AuditRecord` shape (`reasoning`, `params`, `success`). The backend types are the source of truth; frontend types must mirror them exactly. Three different scaffold bugs (#18, #20, #21) traced back to this. **Always validate the type contract end-to-end** when touching either side.
+
+18. **API key auto-injection.** The dashboard SPA reads its API key from `localStorage`. On a clean browser profile that's empty → 401 → user is stuck. The bundled `meta-ads-agent dashboard` server injects a `<script>` into `index.html` that primes `localStorage` from process env. Don't disable this without providing a UI alternative.
+
+19. **Tailwind invisibility trap.** If no file imports a `.css` with `@tailwind` directives, Vite never invokes PostCSS, no stylesheet is emitted, and the entire UI renders as unstyled HTML — even though every component uses Tailwind classes and the config files exist. The fix is `import "./index.css"` in `main.tsx`. PR #20 caught this.
 
 ---
 
@@ -878,26 +1079,26 @@ This section documents the current state of all packages, tool domains, and area
 
 ### Packages
 
-| Package | Status | Description |
-|---------|--------|-------------|
-| `packages/core` | Implemented | Agent loop (OODA), tool system with TypeBox schemas, LLM adapters (Claude + OpenAI), decision engine with scoring and guardrails, Drizzle DB schema, audit logger, config loader |
-| `packages/meta-client` | Implemented | Direct Marketing API client (axios to `graph.facebook.com/v21.0`). Per-resource endpoint classes for campaigns, ad sets, ads, creatives, insights, audiences, batch, split tests, rules, previews. Per-account rate limiter parsing BUC headers. Typed error hierarchy. |
-| `packages/cli` | Implemented | Commander.js CLI with 8 commands: `init`, `run`, `run-once`, `status`, `report`, `pause`, `resume`, `config`. Daemon manager, Winston logging, interactive setup wizard |
-| `packages/dashboard` | Implemented | React 18 + Vite + Tailwind dashboard with 5 pages (Overview, Decisions, Campaigns, Configuration, NotFound). Hono API server, Recharts, polling hooks, agent control buttons |
+| Package | Published? | Description |
+|---|---|---|
+| `packages/core` | No (bundled) | Agent loop (stateless OODA), `AgentSession`, tool system with TypeBox schemas, LLM adapters (Claude + OpenAI), decision engine with scoring/guardrails/`extractFirstJsonArray`, Drizzle SQLite/Postgres schema with three-phase auto-bootstrap, `AuditLogger` + `BackfillEngine`, `CampaignGoalRepository`, `DrizzleSnapshotWriter`, config loader. |
+| `packages/meta-client` | No (bundled) | Direct Marketing API client (axios to `graph.facebook.com/v21.0`). Per-resource endpoint classes: campaigns, ad sets, ads, creatives, insights, audiences, batch, split tests, rules, previews. Per-account rate limiter parsing BUC headers. Typed error hierarchy. |
+| `packages/cli` | **Yes** (`meta-ads-agent`) | The published binary. Bundles `core` + `meta-client` via tsup; ships dashboard static assets in the same tarball. Commands: `init`, `run`, `run-once`, `status`, `decisions`, `guidance`, `dashboard`, `report`, `pause`, `resume`, `config`. Daemon manager, IPC client/server, Winston logger with splat formatting. |
+| `packages/dashboard` | No (bundled) | React 18 + Vite + Tailwind. Pages: Overview, Decisions, Campaigns, Configuration, NotFound. Header date-range picker (`react-day-picker`). Build artifacts copied into `cli/dashboard-static/` on `pnpm build`. |
 
 ### Tool Domains
 
 #### Campaign Management (`packages/core/src/tools/campaign/`)
 
 | Tool Name | File | OODA Phase | Description |
-|-----------|------|------------|-------------|
-| `list_campaigns` | `list-campaigns.ts` | Observe | List all campaigns with current performance metrics |
-| `pause_campaign` | `pause-campaign.ts` | Act | Pause a campaign by ID with audit logging |
-| `scale_campaign` | `scale-campaign.ts` | Act | Scale campaign budget with guardrail enforcement |
-| `create_campaign` | `create-campaign.ts` | Act | Create a new campaign from a structured spec |
-| `duplicate_campaign` | `duplicate-campaign.ts` | Act | Copy a campaign structure (paused for review) |
-| `ab_test_campaign` | `ab-test-campaign.ts` | Act | Create A/B split tests |
-| `analyze_performance` | `analyze-performance.ts` | Orient | Analyze performance vs. agent goals (ROAS/CPA gaps) |
+|---|---|---|---|
+| `list_campaigns` | `list-campaigns.ts` | Observe | List campaigns with status filter applied client-side |
+| `pause_campaign` | `pause-campaign.ts` | Act | Pause a campaign; full audit row with `previousStatus`/`newStatus` |
+| `scale_campaign` | `scale-campaign.ts` | Act | Scale daily budget by factor; guardrails: max-scale, min-budget, approval-threshold |
+| `create_campaign` | `create-campaign.ts` | Act | Create a campaign with validated objective + budget |
+| `duplicate_campaign` | `duplicate-campaign.ts` | Act | Copy a campaign (starts PAUSED for review) |
+| `ab_test_campaign` | `ab-test-campaign.ts` | Act | Create A/B split test via direct API |
+| `analyze_performance` | `analyze-performance.ts` | Orient | Per-campaign KPI gap analysis vs configured goal |
 
 #### Budget Optimization (`packages/core/src/tools/budget/`)
 
@@ -935,18 +1136,30 @@ Budget tools use a **factory pattern** -- they require a `MetaClient` instance a
 | `get_attribution_stats` | `get-attribution-stats.ts` | Attribution window analysis (1d/7d/28d click) |
 | `export_report` | `export-report.ts` | File export for reports (JSON/Markdown/CSV) |
 
-### Known TODOs (Areas for Future Contribution)
+### Known TODOs (areas for future contribution)
 
-1. **End-to-end tests**: Integration tests with mocked Meta API (msw) and full agent loop
-2. **Dashboard API authentication**: Wire up `X-API-Key` middleware in the Hono server
-3. **Database migrations**: Add `drizzle-kit` migration generation and auto-run on startup
-4. **Docker support**: Finish the multi-stage Docker build and docker-compose config
-5. **Webhook receiver**: Add an endpoint for Meta's real-time update webhooks
-6. **Multi-account support**: Allow managing multiple ad accounts from a single agent instance
-7. **Custom tool plugins**: Allow users to add custom tools via a plugin directory
-8. **Scheduling**: Add cron-style scheduling for report generation and creative analysis
-9. **Cost tracking**: Track LLM API costs per agent cycle
-10. **Rollback support**: Allow the agent to undo its last action if metrics worsen
+Grouped by where they live in the architecture, with priority hints. Items already covered by an open issue should reference it.
+
+#### Tier 1 (visible gaps, blocks meaningful use cases)
+
+1. **Per-campaign guardrail enforcement.** `campaign_goals` schema columns `min_daily_budget`, `max_budget_scale_factor`, `require_approval_above` exist but `applyGuardrails` still uses account-wide defaults. Wire the per-campaign overrides in.
+2. **Dashboard goal-edit form.** Operators currently configure goals via `meta-ads-agent guidance` (CLI). The dashboard has a banner placeholder but no edit form. Layer one in once the API contract is settled.
+3. **Decisions-tab graded view.** Now that `actual_outcome` + `performance_delta` are populated, add a hit/miss filter and a per-tool accuracy chart.
+4. **End-to-end MSW test.** Mock the Meta API + run a full OODA tick; assert the audit log and decision sequence. Specifically prevents the field-shape mismatch bugs we hit three times.
+
+#### Tier 2 (architectural, not user-blocking)
+
+5. **Postgres dialect parity.** Schema is SQLite-typed; some types don't translate cleanly. Either per-dialect schemas or a `commonTable` abstraction.
+6. **Server-side filtering on `/api/decisions`.** Tool-name and search filters apply client-side today; the audit logger supports server-side filters and just needs them wired.
+7. **Multi-account support.** All schemas are scoped by `adAccountId` already; the daemon assumes one. Lift the constraint when there's a real second-account need.
+
+#### Tier 3 (nice-to-have / future)
+
+8. **Webhook receiver.** An endpoint for Meta's real-time update webhooks (creative review, account status, etc.).
+9. **Custom tool plugins.** Plugin directory for user-supplied tools.
+10. **LLM cost tracking.** Track Claude/OpenAI token usage and dollar cost per OODA tick; surface on the dashboard.
+11. **Rollback support.** When `performance_delta` shows a regression, allow the agent (with operator approval) to undo its last action.
+12. **Docker / docker-compose.** Multi-stage Dockerfile + Postgres compose for cloud deployments. Skeletons exist; needs polish.
 
 ### How to Add a New Tool
 
