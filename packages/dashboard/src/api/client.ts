@@ -31,7 +31,7 @@ export interface AgentStatus {
  * `success: boolean` and an `expectedOutcome` string. There's no
  * persisted `status` enum to read.
  */
-export type DecisionStatus = "pending" | "executed" | "failed";
+export type DecisionStatus = "pending" | "executed" | "failed" | "resolved";
 
 /**
  * A single audit record from the agent decision log.
@@ -59,6 +59,16 @@ export interface AuditRecord {
 	success: boolean;
 	resultData: string | null;
 	errorMessage: string | null;
+	/**
+	 * Set by the backend on `_pending_guidance` rows when an active
+	 * goal now exists for the same campaign (and matches the row's
+	 * objective). Lets the UI render those rows in grey “since
+	 * resolved” instead of red “failed.” The row itself is unchanged —
+	 * the audit log is append-only — we just decorate the response.
+	 */
+	resolved?: boolean;
+	resolvedByGoalDbId?: number;
+	resolvedAt?: string;
 }
 
 /**
@@ -70,6 +80,10 @@ export interface AuditRecord {
  */
 export function decisionStatus(d: AuditRecord): DecisionStatus {
 	if (d.expectedOutcome === "PENDING_HUMAN_APPROVAL") return "pending";
+	/* `_pending_guidance` rows that have since been addressed (an active
+	 * goal now exists) render as "resolved" — grey, not red — so the
+	 * operator isn't misled by stale red rows after configuring goals. */
+	if (d.resolved === true) return "resolved";
 	return d.success ? "executed" : "failed";
 }
 
