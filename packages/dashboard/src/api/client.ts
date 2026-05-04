@@ -26,27 +26,75 @@ export interface AgentStatus {
 }
 
 /**
+ * Derived UI-facing status for a decision row. Computed client-side
+ * from the raw {@link AuditRecord} fields -- the backend stores only
+ * `success: boolean` and an `expectedOutcome` string. There's no
+ * persisted `status` enum to read.
+ */
+export type DecisionStatus = "pending" | "executed" | "failed";
+
+/**
  * A single audit record from the agent decision log.
+ *
+ * Field shape MUST match `AuditRecord` in @meta-ads-agent/core
+ * (packages/core/src/audit/types.ts) since the dashboard server
+ * returns Drizzle rows verbatim. Earlier versions of this file used
+ * an aspirational shape (`llmReasoning`, `toolParams`, `status`,
+ * `inputMetrics`, etc.) that didn't match reality, and the entire
+ * Decisions tab crashed on first render with `Cannot read properties
+ * of undefined (reading 'length')`.
  */
 export interface AuditRecord {
 	id: string;
 	timestamp: string;
 	sessionId: string;
+	adAccountId: string;
 	toolName: string;
-	toolParams: Record<string, unknown>;
-	llmReasoning: string;
-	inputMetrics: Record<string, unknown>;
-	expectedOutcome: Record<string, unknown> | null;
-	actualOutcome: Record<string, unknown> | null;
-	performanceDelta: Record<string, unknown> | null;
-	status: "pending" | "executed" | "failed" | "skipped";
+	/** JSON-serialized tool parameters. The backend stores TEXT; parse if you need an object. */
+	params: string;
+	reasoning: string;
+	expectedOutcome: string;
+	score: number;
+	riskLevel: "low" | "medium" | "high";
+	success: boolean;
+	resultData: string | null;
+	errorMessage: string | null;
+}
+
+/**
+ * Derives a UI-facing status from the raw audit fields.
+ *
+ *   PENDING_HUMAN_APPROVAL  -> "pending"
+ *   success === true        -> "executed"
+ *   success === false       -> "failed"
+ */
+export function decisionStatus(d: AuditRecord): DecisionStatus {
+	if (d.expectedOutcome === "PENDING_HUMAN_APPROVAL") return "pending";
+	return d.success ? "executed" : "failed";
+}
+
+/**
+ * Safely parses the JSON-encoded `params` string. Returns an empty
+ * object on parse failure so the UI never throws on a malformed row.
+ */
+export function decisionParams(d: AuditRecord): Record<string, unknown> {
+	try {
+		const parsed = JSON.parse(d.params);
+		return typeof parsed === "object" && parsed !== null ? parsed : {};
+	} catch {
+		return {};
+	}
 }
 
 /**
  * Filter parameters for the decisions endpoint.
+ *
+ * NOTE: `status` and `search` are applied client-side; the backend
+ * `/api/decisions` endpoint currently only honors `limit`/`offset`.
+ * Server-side filter support is tracked separately.
  */
 export interface DecisionFilter {
-	status?: "pending" | "executed" | "failed" | "skipped";
+	status?: DecisionStatus | "all";
 	search?: string;
 	limit?: number;
 	offset?: number;
@@ -146,12 +194,13 @@ export const api = {
 	},
 
 	/**
-	 * Fetch the agent decision log with optional filters.
+	 * Fetch the agent decision log.
+	 *
+	 * Only `limit`/`offset` are sent to the server -- `status`/`search`
+	 * are applied client-side because the backend doesn't yet honor them.
 	 */
 	getDecisions(filter?: DecisionFilter): Promise<AuditRecord[]> {
 		const params = new URLSearchParams();
-		if (filter?.status) params.set("status", filter.status);
-		if (filter?.search) params.set("search", filter.search);
 		if (filter?.limit) params.set("limit", String(filter.limit));
 		if (filter?.offset) params.set("offset", String(filter.offset));
 

@@ -7,15 +7,18 @@
  */
 
 import type React from "react";
-import { useState } from "react";
-import type { AuditRecord } from "../api/client";
-import { DecisionCard } from "../components/agent/DecisionCard";
+import { useMemo, useState } from "react";
+import { type AuditRecord, decisionParams, decisionStatus } from "../api/client";
 import { useDecisions } from "../hooks/useDecisions";
 
 /**
  * Status filter options for the decision log.
+ *
+ * "skipped" was in the original scaffold but the backend never emits
+ * such a status -- audit rows are either successful, failed, or pending
+ * approval. Removed from the dropdown to avoid an empty filter state.
  */
-type StatusFilter = "all" | "executed" | "failed" | "pending" | "skipped";
+type StatusFilter = "all" | "executed" | "failed" | "pending";
 
 /**
  * Full decision log page with search and status filtering.
@@ -24,11 +27,23 @@ export function Decisions(): React.ReactElement {
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 	const [searchQuery, setSearchQuery] = useState("");
 
-	const { decisions, loading, error } = useDecisions({
-		status: statusFilter === "all" ? undefined : statusFilter,
-		search: searchQuery || undefined,
-		limit: 50,
-	});
+	const { decisions, loading, error } = useDecisions({ limit: 200 });
+
+	/* Filtering happens client-side because the /api/decisions endpoint
+	 * doesn't yet honor status/search query params. We fetch a generous
+	 * page (200) and prune. Server-side filter support is tracked in a
+	 * follow-up. */
+	const filtered = useMemo(() => {
+		const q = searchQuery.trim().toLowerCase();
+		return decisions.filter((d) => {
+			if (statusFilter !== "all" && decisionStatus(d) !== statusFilter) return false;
+			if (q.length > 0) {
+				const hay = `${d.toolName} ${d.reasoning} ${d.expectedOutcome} ${d.params}`.toLowerCase();
+				if (!hay.includes(q)) return false;
+			}
+			return true;
+		});
+	}, [decisions, statusFilter, searchQuery]);
 
 	return (
 		<div className="space-y-6">
@@ -51,8 +66,7 @@ export function Decisions(): React.ReactElement {
 					<option value="all">All Statuses</option>
 					<option value="executed">Successful</option>
 					<option value="failed">Failed</option>
-					<option value="pending">Pending</option>
-					<option value="skipped">Skipped</option>
+					<option value="pending">Pending Approval</option>
 				</select>
 			</div>
 
@@ -71,7 +85,7 @@ export function Decisions(): React.ReactElement {
 			)}
 
 			{/* Decision list */}
-			{!loading && decisions.length === 0 && (
+			{!loading && filtered.length === 0 && (
 				<div className="text-center py-12 text-gray-500">
 					<p className="text-lg">No decisions found.</p>
 					<p className="text-sm mt-1">
@@ -82,7 +96,7 @@ export function Decisions(): React.ReactElement {
 				</div>
 			)}
 
-			{!loading && decisions.length > 0 && (
+			{!loading && filtered.length > 0 && (
 				<div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
 					<table className="min-w-full divide-y divide-gray-200">
 						<thead className="bg-gray-50">
@@ -105,7 +119,7 @@ export function Decisions(): React.ReactElement {
 							</tr>
 						</thead>
 						<tbody className="bg-white divide-y divide-gray-200">
-							{decisions.map((decision: AuditRecord) => (
+							{filtered.map((decision: AuditRecord) => (
 								<DecisionTableRow key={decision.id} decision={decision} />
 							))}
 						</tbody>
@@ -133,12 +147,17 @@ function DecisionTableRow({
 		executed: "bg-green-100 text-green-800",
 		failed: "bg-red-100 text-red-800",
 		pending: "bg-yellow-100 text-yellow-800",
-		skipped: "bg-gray-100 text-gray-800",
 	};
 
-	const reasoning = decision.llmReasoning;
+	/* The backend stores only `reasoning` (text) and `success` (bool).
+	 * Coalesce reasoning to '' so a malformed row never crashes the row
+	 * renderer with `undefined.length`. */
+	const reasoning = decision.reasoning ?? "";
 	const truncated = reasoning.length > 120 && !expanded;
 	const displayReasoning = truncated ? `${reasoning.slice(0, 120)}...` : reasoning;
+	const params = decisionParams(decision);
+	const paramsLabel = JSON.stringify(params).slice(0, 80);
+	const status = decisionStatus(decision);
 
 	return (
 		<tr className="hover:bg-gray-50">
@@ -150,9 +169,7 @@ function DecisionTableRow({
 					{decision.toolName}
 				</span>
 			</td>
-			<td className="px-4 py-3 text-sm text-gray-700">
-				{JSON.stringify(decision.toolParams).slice(0, 80)}
-			</td>
+			<td className="px-4 py-3 text-sm text-gray-700">{paramsLabel}</td>
 			<td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
 				<span>{displayReasoning}</span>
 				{reasoning.length > 120 && (
@@ -167,9 +184,9 @@ function DecisionTableRow({
 			</td>
 			<td className="px-4 py-3">
 				<span
-					className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[decision.status] ?? "bg-gray-100 text-gray-800"}`}
+					className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[status] ?? "bg-gray-100 text-gray-800"}`}
 				>
-					{decision.status}
+					{status}
 				</span>
 			</td>
 		</tr>
