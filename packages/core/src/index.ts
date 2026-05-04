@@ -88,6 +88,7 @@ export type {
 
 /* === Database === */
 export { createDatabase, createDatabaseAsync } from "./db/index.js";
+export { bootstrapSqliteSchema, SQLITE_BOOTSTRAP_SQL } from "./db/bootstrap.js";
 export type { DatabaseType, DatabaseConfig, DatabaseConnection } from "./db/index.js";
 export {
 	agentSessions,
