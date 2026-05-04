@@ -12,7 +12,14 @@ import type { ActionProposal, GuardrailConfig } from "../decisions/types.js";
 import type { CampaignGoal, CampaignGoalRepository, PendingGuidance } from "../goals/index.js";
 import type { LLMProvider } from "../llm/types.js";
 import type { ToolRegistry } from "../tools/registry.js";
-import type { AgentAction, AgentGoal, CampaignMetrics, PendingAction } from "../types.js";
+import type {
+	AdMetrics,
+	AdSetMetrics,
+	AgentAction,
+	AgentGoal,
+	CampaignMetrics,
+	PendingAction,
+} from "../types.js";
 
 /**
  * Input context for a single agent loop iteration.
@@ -23,6 +30,16 @@ import type { AgentAction, AgentGoal, CampaignMetrics, PendingAction } from "../
 export interface AgentLoopContext {
 	/** Current campaign metrics from Meta Insights API */
 	readonly metrics: CampaignMetrics[];
+
+	/**
+	 * Current ad-set metrics. Surfaced to the LLM so it can recommend
+	 * ad-set-level actions. Optional only because legacy fixtures
+	 * predate the per-level fetch; production callers always pass it.
+	 */
+	readonly adSetMetrics?: AdSetMetrics[];
+
+	/** Current ad-level metrics. Same rationale as `adSetMetrics`. */
+	readonly adMetrics?: AdMetrics[];
 
 	/** Agent optimization goals (ROAS target, CPA cap, etc.) */
 	readonly goals: AgentGoal;
@@ -175,6 +192,18 @@ export interface AgentSessionConfig {
 	readonly fetchMetrics: () => Promise<CampaignMetrics[]>;
 
 	/**
+	 * Optional fetch for ad-set-level metrics. If provided, the session
+	 * calls it once per tick alongside `fetchMetrics` and forwards the
+	 * result to both the snapshot writer and the OODA loop. Returning
+	 * an empty array (or omitting this) is fine — the agent simply
+	 * loses ad-set visibility for the tick.
+	 */
+	readonly fetchAdSetMetrics?: () => Promise<AdSetMetrics[]>;
+
+	/** Optional fetch for ad-level metrics. Same contract as above. */
+	readonly fetchAdMetrics?: () => Promise<AdMetrics[]>;
+
+	/**
 	 * Per-campaign goal store. Required for the agent to act on
 	 * campaigns -- without it, every campaign falls into the legacy
 	 * "all-actionable" path (see filterByGoals in agent/loop.ts).
@@ -211,6 +240,19 @@ export interface AgentSessionConfig {
 	 * existing behavior pre-CLAUDE.md §6 implementation.
 	 */
 	readonly backfillEngine?: import("../audit/backfill.js").BackfillEngine;
+
+	/**
+	 * Optional Drizzle DB handle. When provided, AgentSession will
+	 * INSERT a row into `agent_sessions` on construction and UPDATE
+	 * it on every state change / tick completion. Without this, the
+	 * `/api/status` endpoint always reports `stopped` because nothing
+	 * ever wrote a session row (a real bug in pre-PR-this versions).
+	 *
+	 * Persistence is best-effort: a DB write failure logs a warning
+	 * but does not abort the tick, mirroring snapshot/backfill semantics.
+	 */
+	// biome-ignore lint/suspicious/noExplicitAny: drizzle DB type varies by backend
+	readonly db?: any;
 }
 
 /**

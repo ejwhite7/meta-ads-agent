@@ -10,7 +10,14 @@
  */
 
 /* === Core Types === */
-export type { AgentGoal, CampaignMetrics, AgentAction, PendingAction } from "./types.js";
+export type {
+	AgentGoal,
+	CampaignMetrics,
+	AdSetMetrics,
+	AdMetrics,
+	AgentAction,
+	PendingAction,
+} from "./types.js";
 
 /* === Agent Loop & Session === */
 export { runAgentLoop } from "./agent/loop.js";
@@ -94,6 +101,8 @@ export {
 	agentSessions,
 	agentDecisions,
 	campaignSnapshots,
+	adSetSnapshots,
+	adSnapshots,
 	agentConfig,
 	campaignGoals,
 } from "./db/schema.js";

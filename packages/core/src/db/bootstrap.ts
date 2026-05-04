@@ -65,6 +65,43 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
   timestamp TEXT NOT NULL
 );
 
+-- Ad-set snapshots: one level deeper than campaign_snapshots so the
+-- agent can reason about underperforming ad sets, not just rollups.
+CREATE TABLE IF NOT EXISTS adset_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  adset_id TEXT NOT NULL,
+  campaign_id TEXT NOT NULL,
+  ad_account_id TEXT NOT NULL,
+  impressions INTEGER NOT NULL,
+  clicks INTEGER NOT NULL,
+  spend REAL NOT NULL,
+  conversions INTEGER NOT NULL,
+  roas REAL NOT NULL,
+  cpa REAL NOT NULL,
+  ctr REAL NOT NULL,
+  date TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+
+-- Ad snapshots: leaf level. Lets the agent compare creative
+-- performance within an ad set.
+CREATE TABLE IF NOT EXISTS ad_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ad_id TEXT NOT NULL,
+  adset_id TEXT NOT NULL,
+  campaign_id TEXT NOT NULL,
+  ad_account_id TEXT NOT NULL,
+  impressions INTEGER NOT NULL,
+  clicks INTEGER NOT NULL,
+  spend REAL NOT NULL,
+  conversions INTEGER NOT NULL,
+  roas REAL NOT NULL,
+  cpa REAL NOT NULL,
+  ctr REAL NOT NULL,
+  date TEXT NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+
 -- Campaign snapshots table: historical metrics for trend analysis
 CREATE TABLE IF NOT EXISTS campaign_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,6 +167,10 @@ CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON agent_decisions (timestamp
 CREATE INDEX IF NOT EXISTS idx_decisions_tool_name ON agent_decisions (tool_name);
 CREATE INDEX IF NOT EXISTS idx_snapshots_campaign ON campaign_snapshots (campaign_id, date);
 CREATE INDEX IF NOT EXISTS idx_snapshots_ad_account ON campaign_snapshots (ad_account_id);
+CREATE INDEX IF NOT EXISTS idx_adset_snapshots_adset_date ON adset_snapshots (adset_id, date);
+CREATE INDEX IF NOT EXISTS idx_adset_snapshots_campaign ON adset_snapshots (campaign_id);
+CREATE INDEX IF NOT EXISTS idx_ad_snapshots_ad_date ON ad_snapshots (ad_id, date);
+CREATE INDEX IF NOT EXISTS idx_ad_snapshots_adset ON ad_snapshots (adset_id);
 CREATE INDEX IF NOT EXISTS idx_config_ad_account ON agent_config (ad_account_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_ad_account ON agent_sessions (ad_account_id);
 CREATE INDEX IF NOT EXISTS idx_campaign_goals_account_campaign_deleted ON campaign_goals (ad_account_id, campaign_id, deleted_at);

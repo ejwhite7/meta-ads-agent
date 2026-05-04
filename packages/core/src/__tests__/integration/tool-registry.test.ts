@@ -29,6 +29,8 @@ import { ToolRegistry } from "../../tools/registry.js";
 const EXPECTED_CAMPAIGN_TOOLS = [
 	"list_campaigns",
 	"pause_campaign",
+	"pause_adset",
+	"pause_ad",
 	"scale_campaign",
 	"create_campaign",
 	"duplicate_campaign",

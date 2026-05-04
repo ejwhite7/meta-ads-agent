@@ -197,9 +197,27 @@ export interface CampaignGoalUpsert {
 }
 
 /**
- * Campaign metrics snapshot.
+ * Hierarchical campaign view returned by `GET /api/campaigns`.
+ *
+ * Lookback window (default 7d) is controlled by the
+ * `META_ADS_AGENT_DATE_PRESET` env var on the dashboard server. The
+ * field names use a `7d` suffix because that's the default and what
+ * existing UI assumed; the actual window is whatever the server
+ * configured.
  */
-export interface CampaignMetrics {
+export interface AdMetricsRow {
+	id: string;
+	name: string;
+	status: string;
+	spend7d: number;
+	roas7d: number;
+	cpa7d: number;
+	impressions7d: number;
+	clicks7d: number;
+	conversions7d: number;
+}
+
+export interface AdSetMetricsRow {
 	id: string;
 	name: string;
 	status: string;
@@ -210,14 +228,24 @@ export interface CampaignMetrics {
 	impressions7d: number;
 	clicks7d: number;
 	conversions7d: number;
-	adSets: Array<{
-		id: string;
-		name: string;
-		status: string;
-		spend7d: number;
-		roas7d: number;
-		cpa7d: number;
-	}>;
+	ads: AdMetricsRow[];
+}
+
+export interface CampaignMetrics {
+	id: string;
+	name: string;
+	status: string;
+	objective: string;
+	dailyBudget: number;
+	spend7d: number;
+	roas7d: number;
+	cpa7d: number;
+	impressions7d: number;
+	clicks7d: number;
+	conversions7d: number;
+	/** Active goal for this campaign, or null if none configured. */
+	goal: CampaignGoal | null;
+	adSets: AdSetMetricsRow[];
 }
 
 /**

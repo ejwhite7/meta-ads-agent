@@ -30,7 +30,14 @@ import {
 	loadConfig,
 	parseInsightsToMetrics,
 } from "@meta-ads-agent/core";
-import type { AgentConfig, AgentGoal, CampaignMetrics, LLMProvider } from "@meta-ads-agent/core";
+import type {
+	AdMetrics,
+	AdSetMetrics,
+	AgentConfig,
+	AgentGoal,
+	CampaignMetrics,
+	LLMProvider,
+} from "@meta-ads-agent/core";
 import { MetaClient } from "@meta-ads-agent/meta-client";
 import { logger } from "../utils/logger.js";
 import { IpcClient } from "./ipc.js";
@@ -242,27 +249,108 @@ export class DaemonManager {
 			registry.register(tool);
 		}
 
-		/* ---- fetchMetrics: pulls fresh insights from Meta ---- */
+		/* ---- Insight fetchers ----
+		 *
+		 * Lookback is `last_7d`, NOT `today`. Today-only on a quiet morning
+		 * comes back empty, the snapshot writer's `metrics.length===0` guard
+		 * skips persistence, and the dashboard stays blank forever. A 7-day
+		 * window also matches what an operator opening Meta Ads Manager
+		 * sees by default and gives the LLM enough signal for trend
+		 * reasoning. Override via env if needed; this is the default.
+		 *
+		 * Three fetchers run in parallel each tick (the session awaits all
+		 * three in `Promise.all`). Each is wrapped in try/catch at the
+		 * call site so a single Meta hiccup at one level doesn't blank
+		 * the others. */
+		/* Cast through the InsightsQueryParams literal union so an unset
+		 * env var stays at the safe default without requiring a runtime
+		 * whitelist here. The Marketing API rejects unknown presets with
+		 * a clear error if the user sets something invalid. */
+		const datePreset = (process.env.META_ADS_AGENT_DATE_PRESET ?? "last_7d") as
+			| "today"
+			| "yesterday"
+			| "last_7d"
+			| "last_14d"
+			| "last_28d"
+			| "last_30d"
+			| "last_90d"
+			| "this_month"
+			| "last_month";
+		const INSIGHT_FIELDS = [
+			"campaign_id",
+			"adset_id",
+			"ad_id",
+			"impressions",
+			"clicks",
+			"spend",
+			"ctr",
+			"actions",
+			"action_values",
+			"date_start",
+		];
+
 		const fetchMetrics = async (): Promise<CampaignMetrics[]> => {
 			const insights = await metaClient.insights.query(config.metaAdAccountId, {
 				level: "campaign",
-				date_preset: "today",
-				fields: [
-					"campaign_id",
-					"impressions",
-					"clicks",
-					"spend",
-					"ctr",
-					"actions",
-					"action_values",
-					"date_start",
-				],
+				date_preset: datePreset,
+				fields: INSIGHT_FIELDS,
 			});
 			return insights
 				.filter((i) => Boolean(i.campaign_id))
 				.map((i) => {
 					const m = parseInsightsToMetrics(i);
 					return {
+						campaignId: i.campaign_id ?? "",
+						impressions: m.impressions,
+						clicks: m.clicks,
+						spend: m.spend,
+						conversions: m.conversions,
+						roas: m.roas,
+						cpa: m.cpa,
+						ctr: m.ctr,
+						date: i.date_start ?? new Date().toISOString().slice(0, 10),
+					};
+				});
+		};
+
+		const fetchAdSetMetrics = async (): Promise<AdSetMetrics[]> => {
+			const insights = await metaClient.insights.query(config.metaAdAccountId, {
+				level: "adset",
+				date_preset: datePreset,
+				fields: INSIGHT_FIELDS,
+			});
+			return insights
+				.filter((i) => Boolean(i.adset_id))
+				.map((i) => {
+					const m = parseInsightsToMetrics(i);
+					return {
+						adSetId: i.adset_id ?? "",
+						campaignId: i.campaign_id ?? "",
+						impressions: m.impressions,
+						clicks: m.clicks,
+						spend: m.spend,
+						conversions: m.conversions,
+						roas: m.roas,
+						cpa: m.cpa,
+						ctr: m.ctr,
+						date: i.date_start ?? new Date().toISOString().slice(0, 10),
+					};
+				});
+		};
+
+		const fetchAdMetrics = async (): Promise<AdMetrics[]> => {
+			const insights = await metaClient.insights.query(config.metaAdAccountId, {
+				level: "ad",
+				date_preset: datePreset,
+				fields: INSIGHT_FIELDS,
+			});
+			return insights
+				.filter((i) => Boolean(i.ad_id))
+				.map((i) => {
+					const m = parseInsightsToMetrics(i);
+					return {
+						adId: i.ad_id ?? "",
+						adSetId: i.adset_id ?? "",
 						campaignId: i.campaign_id ?? "",
 						impressions: m.impressions,
 						clicks: m.clicks,
@@ -286,8 +374,14 @@ export class DaemonManager {
 			backfillEngine,
 			goals,
 			fetchMetrics,
+			fetchAdSetMetrics,
+			fetchAdMetrics,
 			metaClient,
 			goalRepository,
+			/* Pass the Drizzle handle through so the session can INSERT/
+			 * UPDATE its row in `agent_sessions`. Without this the
+			 * /api/status endpoint always reports `stopped`. */
+			db: this.dbConnection.db,
 		});
 
 		this.currentSessionId = this.session.getStatus().sessionId;
