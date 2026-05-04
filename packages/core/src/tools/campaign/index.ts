@@ -29,12 +29,16 @@ import { analyzePerformanceTool } from "./analyze-performance.js";
 import { createCampaignTool } from "./create-campaign.js";
 import { duplicateCampaignTool } from "./duplicate-campaign.js";
 import { listCampaignsTool } from "./list-campaigns.js";
+import { pauseAdTool } from "./pause-ad.js";
+import { pauseAdSetTool } from "./pause-adset.js";
 import { pauseCampaignTool } from "./pause-campaign.js";
 import { scaleCampaignTool } from "./scale-campaign.js";
 
 /* Re-export individual tools for selective imports. */
 export { listCampaignsTool } from "./list-campaigns.js";
 export { pauseCampaignTool } from "./pause-campaign.js";
+export { pauseAdSetTool } from "./pause-adset.js";
+export { pauseAdTool } from "./pause-ad.js";
 export { scaleCampaignTool } from "./scale-campaign.js";
 export { createCampaignTool } from "./create-campaign.js";
 export { duplicateCampaignTool } from "./duplicate-campaign.js";
@@ -56,6 +60,8 @@ export { analyzePerformanceTool } from "./analyze-performance.js";
 export const campaignTools: ReadonlyArray<Tool<TObject>> = [
 	listCampaignsTool,
 	pauseCampaignTool,
+	pauseAdSetTool,
+	pauseAdTool,
 	scaleCampaignTool,
 	createCampaignTool,
 	duplicateCampaignTool,

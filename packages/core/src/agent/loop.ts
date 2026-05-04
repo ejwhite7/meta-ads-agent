@@ -18,7 +18,7 @@ import type { CampaignGoal, PendingGuidance } from "../goals/index.js";
 import type { ToolDefinition } from "../llm/types.js";
 import { allTools } from "../tools/index.js";
 import { ToolRegistry } from "../tools/registry.js";
-import type { AgentGoal, CampaignMetrics } from "../types.js";
+import type { AdMetrics, AdSetMetrics, AgentGoal, CampaignMetrics } from "../types.js";
 import type { AgentLoopContext, AgentLoopResult, MetricsSummary } from "./types.js";
 
 /**
@@ -351,6 +351,8 @@ export async function runAgentLoop(context: AgentLoopContext): Promise<AgentLoop
 		pendingGuidance,
 		summary,
 		toolDefinitions,
+		context.adSetMetrics ?? [],
+		context.adMetrics ?? [],
 	);
 
 	/* DECIDE */
@@ -390,19 +392,58 @@ function buildUserPromptWithGoals(
 	pendingGuidance: PendingGuidance[],
 	summary: MetricsSummary,
 	toolDefs: ToolDefinition[],
+	adSetMetrics: AdSetMetrics[],
+	adMetrics: AdMetrics[],
 ): string {
+	/* Group ad sets and ads under their parent campaign so the LLM
+	 * sees the full hierarchy in one block per campaign. Without this
+	 * the prompt is just rolled-up campaign rows and the agent has
+	 * no basis to recommend ad-set or creative-level actions. */
+	const adSetsByCampaign = new Map<string, AdSetMetrics[]>();
+	for (const a of adSetMetrics) {
+		const arr = adSetsByCampaign.get(a.campaignId) ?? [];
+		arr.push(a);
+		adSetsByCampaign.set(a.campaignId, arr);
+	}
+	const adsByAdSet = new Map<string, AdMetrics[]>();
+	for (const a of adMetrics) {
+		const arr = adsByAdSet.get(a.adSetId) ?? [];
+		arr.push(a);
+		adsByAdSet.set(a.adSetId, arr);
+	}
+
 	const metricsBlock = actionable
 		.map(({ metric: m, goal: g }) => {
 			const targetStr = g.primaryKpiDirection === "maximize" ? "target>=" : "cap<=";
-			return (
+			const header =
 				`Campaign ${m.campaignId} [${g.lastSeenObjective}; primary KPI: ${g.primaryKpi} (${g.primaryKpiDirection}, ${targetStr}${g.primaryKpiTarget})]:\n` +
 				`  spend=$${m.spend.toFixed(2)}, roas=${m.roas.toFixed(2)}, cpa=$${m.cpa.toFixed(2)}, ` +
 				`ctr=${(m.ctr * 100).toFixed(2)}%, ` +
 				`impressions=${m.impressions}, clicks=${m.clicks}, ` +
-				`conversions=${m.conversions} (${m.date})`
-			);
+				`conversions=${m.conversions} (${m.date})`;
+
+			const adSets = adSetsByCampaign.get(m.campaignId) ?? [];
+			if (adSets.length === 0) return header;
+
+			const adSetLines = adSets.map((a) => {
+				const adsForSet = adsByAdSet.get(a.adSetId) ?? [];
+				const adSetLine =
+					`  AdSet ${a.adSetId}: spend=$${a.spend.toFixed(2)}, roas=${a.roas.toFixed(2)}, ` +
+					`cpa=$${a.cpa.toFixed(2)}, ctr=${(a.ctr * 100).toFixed(2)}%, ` +
+					`impr=${a.impressions}, clicks=${a.clicks}, conv=${a.conversions}`;
+				if (adsForSet.length === 0) return adSetLine;
+				const adLines = adsForSet
+					.map(
+						(ad) =>
+							`    Ad ${ad.adId}: spend=$${ad.spend.toFixed(2)}, roas=${ad.roas.toFixed(2)}, ` +
+							`ctr=${(ad.ctr * 100).toFixed(2)}%, conv=${ad.conversions}`,
+					)
+					.join("\n");
+				return `${adSetLine}\n${adLines}`;
+			});
+			return `${header}\n${adSetLines.join("\n")}`;
 		})
-		.join("\n");
+		.join("\n\n");
 
 	const pendingBlock =
 		pendingGuidance.length > 0

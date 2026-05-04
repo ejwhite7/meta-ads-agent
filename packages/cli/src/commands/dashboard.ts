@@ -24,12 +24,11 @@ import {
 	AuditLogger,
 	CampaignGoalRepository,
 	DrizzleAuditDatabase,
-	agentDecisions,
 	agentSessions,
-	campaignSnapshots,
 	createDatabase,
 	inferDefaultKpi,
 	loadConfig,
+	parseInsightsToMetrics,
 } from "@meta-ads-agent/core";
 import type {
 	CampaignGoal,
@@ -262,8 +261,185 @@ export function registerDashboardCommand(program: Command): void {
 				});
 
 				app.get("/api/campaigns", async (c) => {
-					const rows = await dbConn.db.select().from(campaignSnapshots).limit(50);
-					return c.json(rows);
+					/* Live, hierarchical campaign view.
+					 *
+					 * Pre-this-PR this endpoint just dumped `campaign_snapshots`
+					 * rows verbatim, which:
+					 *   1. were empty until a snapshot tick had run (and on a
+					 *      `today`-preset, dry-run, or quiet-account daemon
+					 *      they often stayed empty forever);
+					 *   2. didn't include name, status, daily budget, objective,
+					 *      goal, ad sets, or ads — none of what the dashboard
+					 *      type `CampaignMetrics` actually expects.
+					 *
+					 * Now: pull the live hierarchy from Meta (campaigns +
+					 * adsets + ads) in parallel with the latest 7-day insights
+					 * at all three levels and the active goals for the account.
+					 * Merge into a single tree the dashboard can render.
+					 *
+					 * Falls back to the most-recent rows in the snapshot tables
+					 * if Meta is temporarily unavailable, so the dashboard keeps
+					 * showing the last-known data instead of going blank. */
+					const datePreset = (process.env.META_ADS_AGENT_DATE_PRESET ?? "last_7d") as
+						| "today"
+						| "yesterday"
+						| "last_7d"
+						| "last_14d"
+						| "last_28d"
+						| "last_30d"
+						| "last_90d"
+						| "this_month"
+						| "last_month";
+
+					let client: MetaClient;
+					try {
+						client = await getMetaClient();
+					} catch (err) {
+						const message = err instanceof Error ? err.message : String(err);
+						return c.json({ error: `Meta API unavailable: ${message}`, campaigns: [] }, 502);
+					}
+
+					interface RawCampaign {
+						id: string;
+						name: string;
+						status: string;
+						objective: string;
+						daily_budget?: string;
+					}
+					interface RawAdSet {
+						id: string;
+						name: string;
+						campaign_id: string;
+						status: string;
+						daily_budget?: string;
+					}
+					interface RawAd {
+						id: string;
+						name: string;
+						adset_id: string;
+						status: string;
+					}
+
+					/* Run all six fetches concurrently. Any single failure becomes
+					 * an empty array, not a 502 — we'd rather show a partial
+					 * tree than a blank page. */
+					const [campaignsRes, adSetsRes, adsRes, campaignInsRes, adSetInsRes, adInsRes] =
+						await Promise.allSettled([
+							client.campaigns.list(cfg.metaAdAccountId) as Promise<RawCampaign[]>,
+							client.adSets.list(cfg.metaAdAccountId) as Promise<RawAdSet[]>,
+							client.ads.list(cfg.metaAdAccountId) as Promise<RawAd[]>,
+							client.insights.query(cfg.metaAdAccountId, {
+								level: "campaign",
+								date_preset: datePreset,
+							}),
+							client.insights.query(cfg.metaAdAccountId, {
+								level: "adset",
+								date_preset: datePreset,
+							}),
+							client.insights.query(cfg.metaAdAccountId, {
+								level: "ad",
+								date_preset: datePreset,
+							}),
+						]);
+
+					const settled = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
+						r.status === "fulfilled" ? r.value : fallback;
+					const campaigns = settled(campaignsRes, [] as RawCampaign[]);
+					const rawAdSets = settled(adSetsRes, [] as RawAdSet[]);
+					const rawAds = settled(adsRes, [] as RawAd[]);
+					const campaignInsights = settled(campaignInsRes, []);
+					const adSetInsights = settled(adSetInsRes, []);
+					const adInsights = settled(adInsRes, []);
+
+					/* Index insights by entity id for O(1) joins below. */
+					const campaignMetrics = new Map<string, ReturnType<typeof parseInsightsToMetrics>>();
+					for (const i of campaignInsights) {
+						if (i.campaign_id) campaignMetrics.set(i.campaign_id, parseInsightsToMetrics(i));
+					}
+					const adSetMetricsById = new Map<string, ReturnType<typeof parseInsightsToMetrics>>();
+					for (const i of adSetInsights) {
+						if (i.adset_id) adSetMetricsById.set(i.adset_id, parseInsightsToMetrics(i));
+					}
+					const adMetricsById = new Map<string, ReturnType<typeof parseInsightsToMetrics>>();
+					for (const i of adInsights) {
+						if (i.ad_id) adMetricsById.set(i.ad_id, parseInsightsToMetrics(i));
+					}
+
+					/* Active goals: one per campaign at most. */
+					const goals = await goalRepo.listActive(cfg.metaAdAccountId);
+					const goalsByCampaign = new Map(goals.map((g) => [g.campaignId, g]));
+
+					/* Group adsets and ads under their parents. */
+					const adSetsByCampaign = new Map<string, RawAdSet[]>();
+					for (const a of rawAdSets) {
+						const arr = adSetsByCampaign.get(a.campaign_id) ?? [];
+						arr.push(a);
+						adSetsByCampaign.set(a.campaign_id, arr);
+					}
+					const adsByAdSet = new Map<string, RawAd[]>();
+					for (const a of rawAds) {
+						const arr = adsByAdSet.get(a.adset_id) ?? [];
+						arr.push(a);
+						adsByAdSet.set(a.adset_id, arr);
+					}
+
+					const budgetCentsToDollars = (cents?: string): number => {
+						if (!cents) return 0;
+						const n = Number.parseInt(cents, 10);
+						return Number.isFinite(n) ? n / 100 : 0;
+					};
+
+					const response = campaigns.map((camp) => {
+						const m = campaignMetrics.get(camp.id);
+						const goal = goalsByCampaign.get(camp.id) ?? null;
+						const children = adSetsByCampaign.get(camp.id) ?? [];
+						return {
+							id: camp.id,
+							name: camp.name,
+							status: camp.status,
+							objective: camp.objective,
+							dailyBudget: budgetCentsToDollars(camp.daily_budget),
+							spend7d: m?.spend ?? 0,
+							roas7d: m?.roas ?? 0,
+							cpa7d: m?.cpa ?? 0,
+							impressions7d: m?.impressions ?? 0,
+							clicks7d: m?.clicks ?? 0,
+							conversions7d: m?.conversions ?? 0,
+							goal,
+							adSets: children.map((s) => {
+								const sm = adSetMetricsById.get(s.id);
+								const leafAds = adsByAdSet.get(s.id) ?? [];
+								return {
+									id: s.id,
+									name: s.name,
+									status: s.status,
+									dailyBudget: budgetCentsToDollars(s.daily_budget),
+									spend7d: sm?.spend ?? 0,
+									roas7d: sm?.roas ?? 0,
+									cpa7d: sm?.cpa ?? 0,
+									impressions7d: sm?.impressions ?? 0,
+									clicks7d: sm?.clicks ?? 0,
+									conversions7d: sm?.conversions ?? 0,
+									ads: leafAds.map((ad) => {
+										const am = adMetricsById.get(ad.id);
+										return {
+											id: ad.id,
+											name: ad.name,
+											status: ad.status,
+											spend7d: am?.spend ?? 0,
+											roas7d: am?.roas ?? 0,
+											cpa7d: am?.cpa ?? 0,
+											impressions7d: am?.impressions ?? 0,
+											clicks7d: am?.clicks ?? 0,
+											conversions7d: am?.conversions ?? 0,
+										};
+									}),
+								};
+							}),
+						};
+					});
+
+					return c.json(response);
 				});
 
 				/* ---- Per-campaign goal management ----

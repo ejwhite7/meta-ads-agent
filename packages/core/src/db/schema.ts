@@ -138,6 +138,69 @@ export const agentDecisions = sqliteTable(
 );
 
 /**
+ * Ad set snapshots table.
+ *
+ * Per-tick metrics for each ad set the account contains, mirroring
+ * `campaign_snapshots` one level deeper in the hierarchy. The agent
+ * needs this to recommend ad-set-level actions (pause underperforming
+ * ad sets, reallocate adset budgets, etc.) -- it cannot make those
+ * recommendations from campaign rollups alone.
+ */
+export const adSetSnapshots = sqliteTable(
+	"adset_snapshots",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		adSetId: text("adset_id").notNull(),
+		campaignId: text("campaign_id").notNull(),
+		adAccountId: text("ad_account_id").notNull(),
+		impressions: integer("impressions").notNull(),
+		clicks: integer("clicks").notNull(),
+		spend: real("spend").notNull(),
+		conversions: integer("conversions").notNull(),
+		roas: real("roas").notNull(),
+		cpa: real("cpa").notNull(),
+		ctr: real("ctr").notNull(),
+		date: text("date").notNull(),
+		recordedAt: text("recorded_at").notNull(),
+	},
+	(t) => ({
+		idxAdSetDate: index("idx_adset_snapshots_adset_date").on(t.adSetId, t.date),
+		idxCampaign: index("idx_adset_snapshots_campaign").on(t.campaignId),
+	}),
+);
+
+/**
+ * Ad snapshots table.
+ *
+ * Per-tick metrics for each ad. Lets the agent (and the dashboard)
+ * compare creative performance within an ad set without re-querying
+ * Meta for history.
+ */
+export const adSnapshots = sqliteTable(
+	"ad_snapshots",
+	{
+		id: integer("id").primaryKey({ autoIncrement: true }),
+		adId: text("ad_id").notNull(),
+		adSetId: text("adset_id").notNull(),
+		campaignId: text("campaign_id").notNull(),
+		adAccountId: text("ad_account_id").notNull(),
+		impressions: integer("impressions").notNull(),
+		clicks: integer("clicks").notNull(),
+		spend: real("spend").notNull(),
+		conversions: integer("conversions").notNull(),
+		roas: real("roas").notNull(),
+		cpa: real("cpa").notNull(),
+		ctr: real("ctr").notNull(),
+		date: text("date").notNull(),
+		recordedAt: text("recorded_at").notNull(),
+	},
+	(t) => ({
+		idxAdDate: index("idx_ad_snapshots_ad_date").on(t.adId, t.date),
+		idxAdSet: index("idx_ad_snapshots_adset").on(t.adSetId),
+	}),
+);
+
+/**
  * Campaign snapshots table.
  *
  * Stores historical campaign metrics for trend analysis, anomaly detection,

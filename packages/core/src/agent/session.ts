@@ -8,10 +8,12 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { agentSessions } from "../db/schema.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { HookManager } from "../tools/hooks.js";
 import type { ToolContext } from "../tools/types.js";
-import type { AgentAction } from "../types.js";
+import type { AdMetrics, AdSetMetrics, AgentAction } from "../types.js";
 import { runAgentLoop } from "./loop.js";
 import type { AgentLoopResult, AgentSessionConfig, SessionResult, SessionStatus } from "./types.js";
 
@@ -84,6 +86,39 @@ export class AgentSession {
 		});
 		this.maxConsecutiveFailures = config.config.maxRetries;
 
+		/* Persist a row in `agent_sessions` so /api/status, the dashboard,
+		 * and `meta-ads-agent status` can see the session exists. Pre-this-PR
+		 * NOBODY ever inserted into agent_sessions, so the table stayed
+		 * empty and /api/status always reported `state: "stopped"` even
+		 * with a live daemon writing audit rows. Best-effort: if the DB
+		 * write fails we log and continue — the agent's correctness does
+		 * not depend on the session row, only the audit log does. */
+		if (config.db) {
+			const now = new Date().toISOString();
+			try {
+				void config.db
+					.insert(agentSessions)
+					.values({
+						id: this.sessionId,
+						adAccountId: config.config.metaAdAccountId,
+						state: "idle",
+						iterationCount: 0,
+						consecutiveFailures: 0,
+						lastTickAt: null,
+						lastError: null,
+						createdAt: now,
+						updatedAt: now,
+					})
+					.then(undefined, (err: unknown) => {
+						const msg = err instanceof Error ? err.message : String(err);
+						console.warn(`[AgentSession] Failed to persist session row: ${msg}`);
+					});
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[AgentSession] Failed to persist session row: ${msg}`);
+			}
+		}
+
 		/* Halt the agent when the audit log has failed too many times in a row.
 		 * The audit trail is the system of record per CLAUDE.md §6 -- if we
 		 * cannot persist decisions, we must not continue making them. */
@@ -115,6 +150,7 @@ export class AgentSession {
 		if (this.state === "running") return;
 
 		this.state = "running";
+		this.persistSessionState();
 
 		/* Run the first tick immediately */
 		await this.executeTick();
@@ -137,6 +173,7 @@ export class AgentSession {
 			clearTimeout(this.tickTimer);
 			this.tickTimer = null;
 		}
+		this.persistSessionState();
 	}
 
 	/**
@@ -186,23 +223,38 @@ export class AgentSession {
 		let loopResult: AgentLoopResult | null = null;
 
 		try {
-			/* Fetch current metrics from Meta */
-			const metrics = await this.sessionConfig.fetchMetrics();
+			/* Fetch current metrics from Meta at all three hierarchy levels
+			 * in parallel. Ad-set and ad fetches are optional in the config
+			 * (legacy fixtures may not provide them); when omitted we just
+			 * skip the corresponding snapshot/prompt enrichment. */
+			const [metrics, adSetMetricsRaw, adMetricsRaw] = await Promise.all([
+				this.sessionConfig.fetchMetrics(),
+				this.sessionConfig.fetchAdSetMetrics?.() ?? Promise.resolve([] as AdSetMetrics[]),
+				this.sessionConfig.fetchAdMetrics?.() ?? Promise.resolve([] as AdMetrics[]),
+			]);
+			const adSetMetrics: AdSetMetrics[] = adSetMetricsRaw;
+			const adMetrics: AdMetrics[] = adMetricsRaw;
 
 			/* Persist snapshots BEFORE running the loop so the dashboard
 			 * reflects the same data the agent is about to reason over.
-			 * Snapshot persistence is best-effort: a DB hiccup must not
-			 * cancel the tick, since the agent reasons over the in-memory
-			 * `metrics` array directly. */
-			if (this.sessionConfig.snapshotWriter && metrics.length > 0) {
-				try {
-					await this.sessionConfig.snapshotWriter.writeSnapshots(
-						metrics,
-						this.sessionConfig.config.metaAdAccountId,
-					);
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					console.warn(`[AgentSession] Failed to persist campaign snapshots: ${msg}`);
+			 * Each level is persisted independently so a failure at one
+			 * level (e.g. ad-set table missing on a legacy DB pre-bootstrap)
+			 * does not block the others. */
+			if (this.sessionConfig.snapshotWriter) {
+				const writer = this.sessionConfig.snapshotWriter;
+				const accountId = this.sessionConfig.config.metaAdAccountId;
+				const writes: Array<[string, () => Promise<void>]> = [
+					["campaign", () => writer.writeSnapshots(metrics, accountId)],
+					["adset", () => writer.writeAdSetSnapshots(adSetMetrics, accountId)],
+					["ad", () => writer.writeAdSnapshots(adMetrics, accountId)],
+				];
+				for (const [level, write] of writes) {
+					try {
+						await write();
+					} catch (err) {
+						const msg = err instanceof Error ? err.message : String(err);
+						console.warn(`[AgentSession] Failed to persist ${level} snapshots: ${msg}`);
+					}
 				}
 			}
 
@@ -268,9 +320,13 @@ export class AgentSession {
 				console.warn(`[AgentSession] Failed to load campaign list for goal lookup: ${msg}`);
 			}
 
-			/* Run the stateless OODA loop */
+			/* Run the stateless OODA loop. Pass through ad-set and ad metrics
+			 * so the loop can include them in the LLM prompt and reason about
+			 * the full hierarchy, not just campaign rollups. */
 			loopResult = await runAgentLoop({
 				metrics,
+				adSetMetrics,
+				adMetrics,
 				goals: this.sessionConfig.goals,
 				toolRegistry: this.sessionConfig.toolRegistry,
 				llmProvider: this.sessionConfig.llmProvider,
@@ -397,6 +453,7 @@ export class AgentSession {
 			this.lastTickAt = new Date().toISOString();
 			this.lastError = null;
 			this.iterationCount++;
+			this.persistSessionState();
 
 			return {
 				success: true,
@@ -417,6 +474,7 @@ export class AgentSession {
 					this.tickTimer = null;
 				}
 			}
+			this.persistSessionState();
 
 			return {
 				success: false,
@@ -424,6 +482,38 @@ export class AgentSession {
 				executedActions: [],
 				error: message,
 			};
+		}
+	}
+
+	/**
+	 * Best-effort UPDATE of the agent_sessions row created in the
+	 * constructor. Called after every state-changing operation so the
+	 * dashboard's `/api/status` endpoint sees fresh data. Failures
+	 * are logged but never thrown — the audit log is the system of
+	 * record, not this row.
+	 */
+	private persistSessionState(): void {
+		if (!this.sessionConfig.db) return;
+		const now = new Date().toISOString();
+		try {
+			void this.sessionConfig.db
+				.update(agentSessions)
+				.set({
+					state: this.state,
+					iterationCount: this.iterationCount,
+					consecutiveFailures: this.consecutiveFailures,
+					lastTickAt: this.lastTickAt,
+					lastError: this.lastError,
+					updatedAt: now,
+				})
+				.where(eq(agentSessions.id, this.sessionId))
+				.then(undefined, (err: unknown) => {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[AgentSession] Failed to update session row: ${msg}`);
+				});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[AgentSession] Failed to update session row: ${msg}`);
 		}
 	}
 

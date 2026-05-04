@@ -66,6 +66,44 @@ export interface CampaignMetrics {
 }
 
 /**
+ * Per-tick metrics for a single ad set. Mirrors `CampaignMetrics`
+ * one level deeper in the hierarchy. The agent uses these to
+ * recommend ad-set-level actions (pause, reallocate budget) -- it
+ * cannot make those recommendations from campaign rollups alone.
+ */
+export interface AdSetMetrics {
+	readonly adSetId: string;
+	readonly campaignId: string;
+	readonly impressions: number;
+	readonly clicks: number;
+	readonly spend: number;
+	readonly conversions: number;
+	readonly roas: number;
+	readonly cpa: number;
+	readonly ctr: number;
+	readonly date: string;
+	readonly dailyBudget?: number;
+}
+
+/**
+ * Per-tick metrics for a single ad. Leaf level; lets the agent
+ * (and the dashboard) compare creative performance within an ad set.
+ */
+export interface AdMetrics {
+	readonly adId: string;
+	readonly adSetId: string;
+	readonly campaignId: string;
+	readonly impressions: number;
+	readonly clicks: number;
+	readonly spend: number;
+	readonly conversions: number;
+	readonly roas: number;
+	readonly cpa: number;
+	readonly ctr: number;
+	readonly date: string;
+}
+
+/**
  * An action that the agent has decided to take, ready for tool execution.
  * Produced by the decision engine after scoring and ranking proposals.
  */
