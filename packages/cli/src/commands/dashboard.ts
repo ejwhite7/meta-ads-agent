@@ -31,7 +31,7 @@ import {
 } from "@meta-ads-agent/core";
 import type { Command } from "commander";
 import { desc, eq } from "drizzle-orm";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { IpcClient } from "../daemon/ipc.js";
 import { error, section, success } from "../utils/display.js";
@@ -284,21 +284,64 @@ export function registerDashboardCommand(program: Command): void {
 					return c.json({ error: "Agent daemon is not running" }, 503);
 				});
 
+				/* ---- HTML serve: inject the API key so the SPA can authenticate ----
+				 *
+				 * The bundled React app reads the API key from
+				 * localStorage["meta-ads-agent-api-key"] (see
+				 * packages/dashboard/src/api/client.ts:getApiKey). On a clean
+				 * browser profile that storage is empty, every /api/* request
+				 * comes back 401, and the user has no clear path to recover.
+				 *
+				 * Since the dashboard server is launched from the same shell
+				 * environment that holds the key (DASHBOARD_API_KEY or
+				 * --api-key), and is same-origin with the SPA it serves, we
+				 * inject a small bootstrap script into <head> that primes
+				 * localStorage on first load. Subsequent reloads find the key
+				 * already there.
+				 *
+				 * Threat model: the key is sent over the loopback interface
+				 * only. Anything that can read process env on the same machine
+				 * already has the key. We HTML-escape the value defensively in
+				 * case a future caller passes a key containing `<`/`</script>`.
+				 */
+				const serveIndex = async (c: Context) => {
+					const indexPath = join(staticDir, "index.html");
+					if (!existsSync(indexPath)) {
+						return c.text("Dashboard assets not found", 500);
+					}
+					const { readFile } = await import("node:fs/promises");
+					let html = await readFile(indexPath, "utf-8");
+
+					if (!authDisabled && apiKey) {
+						const safe = JSON.stringify(apiKey); /* JSON-escapes embedded quotes/backslashes */
+						const inject = [
+							"<script>",
+							`(function(){try{var k=${safe};var s=window.localStorage;`,
+							'if(s.getItem("meta-ads-agent-api-key")!==k)s.setItem("meta-ads-agent-api-key",k);',
+							"}catch(e){}})();",
+							"</script>",
+						].join("");
+						if (html.includes("</head>")) {
+							html = html.replace("</head>", `${inject}</head>`);
+						} else {
+							/* Fallback for HTMLs that lack a <head> element entirely. */
+							html = inject + html;
+						}
+					}
+					return c.html(html);
+				};
+
+				/* Intercept the HTML routes BEFORE the static middleware so the
+				 * injection always runs. The static middleware handles JS/CSS/etc. */
+				app.get("/", (c) => serveIndex(c));
+				app.get("/index.html", (c) => serveIndex(c));
+
 				/* ---- Static assets (the React SPA build output) ---- */
 				app.use("/*", serveStatic({ root: staticDir }));
 
 				/* SPA fallback: any non-API non-asset GET should return index.html so
 				 * client-side routes (e.g. /decisions, /campaigns) survive a refresh. */
-				app.get("*", async (c) => {
-					const indexPath = join(staticDir, "index.html");
-					if (!existsSync(indexPath)) {
-						return c.text("Dashboard assets not found", 500);
-					}
-					const html = await import("node:fs/promises").then((fs) =>
-						fs.readFile(indexPath, "utf-8"),
-					);
-					return c.html(html);
-				});
+				app.get("*", (c) => serveIndex(c));
 
 				/* ---- Start the server ---- */
 				const server = serve({ fetch: app.fetch, port }, (info) => {
