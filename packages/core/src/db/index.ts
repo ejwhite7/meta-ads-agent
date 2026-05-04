@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
+import { bootstrapSqliteSchema } from "./bootstrap.js";
 import * as schema from "./schema.js";
 
 /**
@@ -86,6 +87,13 @@ function createSqliteConnection(filePath: string): DatabaseConnection {
 	/* Enable WAL mode for better performance */
 	sqlite.pragma("journal_mode = WAL");
 	sqlite.pragma("foreign_keys = ON");
+
+	/* Bootstrap the schema. All statements are `IF NOT EXISTS` so this is
+	 * safe to run on every connection -- the first run creates tables on
+	 * a fresh DB, subsequent runs are no-ops. We do this here rather than
+	 * relying on a separate migration step because the published CLI is a
+	 * single bundled JS file with no .sql files alongside it. */
+	bootstrapSqliteSchema(sqlite);
 
 	const db = drizzleSqlite(sqlite, { schema });
 
