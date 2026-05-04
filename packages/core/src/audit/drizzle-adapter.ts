@@ -9,7 +9,7 @@
  * because the underlying schema stores them as TEXT for backend portability.
  */
 
-import { desc } from "drizzle-orm";
+import { type SQL, and, desc, eq, gte, lte } from "drizzle-orm";
 import { agentDecisions } from "../db/schema.js";
 import type { AuditDatabase } from "./logger.js";
 import type { AuditFilter, AuditRecord } from "./types.js";
@@ -48,9 +48,37 @@ export class DrizzleAuditDatabase implements AuditDatabase {
 	async queryDecisions(filter: AuditFilter): Promise<AuditRecord[]> {
 		const limit = filter.limit ?? 100;
 		const offset = filter.offset ?? 0;
-		const rows = await this.db
-			.select()
-			.from(agentDecisions)
+
+		/* Translate AuditFilter fields into Drizzle WHERE conditions. Each
+		 * field is opt-in -- omitting it means "don't filter on this column". */
+		const conditions: SQL[] = [];
+		if (filter.sessionId !== undefined) {
+			conditions.push(eq(agentDecisions.sessionId, filter.sessionId));
+		}
+		if (filter.adAccountId !== undefined) {
+			conditions.push(eq(agentDecisions.adAccountId, filter.adAccountId));
+		}
+		if (filter.toolName !== undefined) {
+			conditions.push(eq(agentDecisions.toolName, filter.toolName));
+		}
+		if (filter.riskLevel !== undefined) {
+			conditions.push(eq(agentDecisions.riskLevel, filter.riskLevel));
+		}
+		if (filter.success !== undefined) {
+			conditions.push(eq(agentDecisions.success, filter.success));
+		}
+		if (filter.startDate !== undefined) {
+			conditions.push(gte(agentDecisions.timestamp, filter.startDate));
+		}
+		if (filter.endDate !== undefined) {
+			conditions.push(lte(agentDecisions.timestamp, filter.endDate));
+		}
+
+		const whereExpr = conditions.length > 0 ? and(...conditions) : undefined;
+		const baseQuery = whereExpr
+			? this.db.select().from(agentDecisions).where(whereExpr)
+			: this.db.select().from(agentDecisions);
+		const rows = await baseQuery
 			.orderBy(desc(agentDecisions.timestamp))
 			.limit(limit)
 			.offset(offset);

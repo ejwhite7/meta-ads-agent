@@ -16,16 +16,22 @@
 
 import winston from "winston";
 
-const { combine, timestamp, printf, colorize, json, errors } = winston.format;
+const { combine, timestamp, printf, colorize, json, errors, splat } = winston.format;
 
 /** Determine whether the current process is running in production mode. */
 const isProduction = process.env.NODE_ENV === "production";
 
 /**
  * Human-readable format for development.
+ *
+ * `splat()` enables printf-style placeholders (%s, %d, %o) so callers can
+ * write `logger.info("IPC listening on %s", socketPath)` and have the
+ * placeholder interpolated. Without it, the placeholder prints literally
+ * and the trailing argument is discarded.
  */
 const devFormat = combine(
 	errors({ stack: true }),
+	splat(),
 	timestamp({ format: "HH:mm:ss" }),
 	colorize(),
 	printf(({ level, message, timestamp: ts, stack }) => {
@@ -37,7 +43,7 @@ const devFormat = combine(
 /**
  * Structured JSON format for production.
  */
-const prodFormat = combine(errors({ stack: true }), timestamp(), json());
+const prodFormat = combine(errors({ stack: true }), splat(), timestamp(), json());
 
 /**
  * Shared logger instance used throughout the CLI.

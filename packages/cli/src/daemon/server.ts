@@ -100,7 +100,7 @@ export class IpcServer {
 				} catch (err: unknown) {
 					logger.debug("Failed to chmod socket: %s", (err as Error).message);
 				}
-				logger.info("IPC server listening on %s", this.socketPath);
+				logger.info(`IPC server listening on ${this.socketPath}`);
 				resolve();
 			});
 		});
