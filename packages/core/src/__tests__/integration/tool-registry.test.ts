@@ -43,6 +43,7 @@ const EXPECTED_BUDGET_TOOLS = [
 	"get_pacing_alerts",
 	"set_budget",
 	"reallocate_budget",
+	"reallocate_adset_budget",
 	"optimize_bids",
 	"project_spend",
 ];
