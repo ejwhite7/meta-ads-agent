@@ -211,6 +211,51 @@ export interface CampaignGoalUpsert {
 }
 
 /**
+ * Active configuration returned by `GET /api/configuration`.
+ *
+ * `guardrails` are editable account-wide settings (rendered as form
+ * fields). `runtime` values are sourced from the daemon process /
+ * config.json and CANNOT be changed from the dashboard — they require
+ * `meta-ads-agent init` (token / LLM provider) or a daemon restart
+ * with a different `--interval` flag.
+ */
+export type RiskLevel = "conservative" | "moderate" | "aggressive";
+
+export interface ConfigurationGuardrails {
+	roasTarget: number;
+	cpaCap: number;
+	dailyBudgetLimit: number;
+	riskLevel: RiskLevel;
+	configuredAt: string;
+}
+
+export interface ConfigurationRuntime {
+	llmProvider: "claude" | "openai";
+	tickIntervalMinutes: number | null;
+	adAccountId: string;
+	dbType: "sqlite" | "postgres";
+	dryRun: boolean;
+}
+
+export interface ConfigurationResponse {
+	guardrails: ConfigurationGuardrails | null;
+	runtime: ConfigurationRuntime;
+}
+
+export interface ConfigurationUpdateInput {
+	roasTarget: number;
+	cpaCap: number;
+	dailyBudgetLimit: number;
+	riskLevel: RiskLevel;
+}
+
+export interface ConfigurationUpdateResponse {
+	guardrails: ConfigurationGuardrails;
+	requiresDaemonRestart: boolean;
+	insertedId: number | null;
+}
+
+/**
  * Account-level summary returned by `GET /api/metrics/summary`.
  * Live data from MetaClient.insights at `level: "account"` for both
  * the current N-day window and the immediately-prior N-day window,
@@ -395,6 +440,23 @@ export const api = {
 	 */
 	getCampaigns(): Promise<CampaignMetrics[]> {
 		return request<CampaignMetrics[]>("/api/campaigns");
+	},
+
+	/**
+	 * Read-only + editable agent configuration. The PUT endpoint only
+	 * updates the account-wide guardrails; runtime values come from the
+	 * daemon process and require `init` / restart to change.
+	 */
+	configuration: {
+		get(): Promise<ConfigurationResponse> {
+			return request<ConfigurationResponse>("/api/configuration");
+		},
+		update(input: ConfigurationUpdateInput): Promise<ConfigurationUpdateResponse> {
+			return request<ConfigurationUpdateResponse>("/api/configuration", {
+				method: "PUT",
+				body: JSON.stringify(input),
+			});
+		},
 	},
 
 	/**
