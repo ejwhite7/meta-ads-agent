@@ -7,7 +7,24 @@
  * and database connection parameters.
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
+
+/**
+ * Default SQLite database path.
+ *
+ * Resolved at module load to an absolute path under the user's home
+ * directory so that the daemon and any client tool (decisions, dashboard,
+ * etc.) all converge on the same file regardless of where they're
+ * invoked from. The previous relative default `./data/agent.db` meant
+ * users running commands from different working directories silently
+ * created scattered, empty databases.
+ *
+ * Co-locates with the existing `~/.meta-ads-agent/config.json` and
+ * `~/.meta-ads-agent/agent.sock` -- one canonical user state directory.
+ */
+const DEFAULT_SQLITE_PATH = join(homedir(), ".meta-ads-agent", "agent.db");
 
 /**
  * Zod schema for the complete agent configuration.
@@ -62,7 +79,10 @@ export const AgentConfigSchema = z.object({
 	dbType: z.enum(["sqlite", "postgres"]).default("sqlite").describe("Database backend type"),
 
 	/** SQLite file path (used when dbType is "sqlite") */
-	sqlitePath: z.string().default("./data/agent.db").describe("SQLite database file path"),
+	sqlitePath: z
+		.string()
+		.default(DEFAULT_SQLITE_PATH)
+		.describe("SQLite database file path (absolute, defaults to ~/.meta-ads-agent/agent.db)"),
 
 	/** PostgreSQL connection string (required when dbType is "postgres") */
 	postgresUrl: z.string().optional().describe("PostgreSQL connection URL"),

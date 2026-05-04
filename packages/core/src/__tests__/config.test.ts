@@ -61,7 +61,10 @@ describe("loadConfig", () => {
 		expect(config.lookbackDays).toBe(7);
 		expect(config.dryRun).toBe(false);
 		expect(config.dbType).toBe("sqlite");
-		expect(config.sqlitePath).toBe("./data/agent.db");
+		/* Default sqlitePath is now an absolute path under the user's home dir
+		 * so the daemon and client commands converge regardless of cwd. */
+		expect(config.sqlitePath).toMatch(/[/\\]\.meta-ads-agent[/\\]agent\.db$/);
+		expect(config.sqlitePath.startsWith("/") || /^[A-Z]:[/\\]/.test(config.sqlitePath)).toBe(true);
 		expect(config.logLevel).toBe("info");
 	});
 

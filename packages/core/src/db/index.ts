@@ -7,8 +7,9 @@
  * single-user deployment; PostgreSQL for cloud/team environments.
  */
 
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3";
 import * as schema from "./schema.js";
@@ -60,6 +61,26 @@ function createSqliteConnection(filePath: string): DatabaseConnection {
 	/* Ensure the directory exists */
 	mkdirSync(dirname(filePath), { recursive: true });
 
+	/* Legacy-data nudge: until v0.1.x the default was relative `./data/agent.db`,
+	 * which meant users running commands from different working directories
+	 * silently created scattered databases. If the new default is being used
+	 * for the first time AND a legacy `./data/agent.db` exists in the cwd,
+	 * print a one-time notice so the operator knows to move it (we don't
+	 * auto-migrate -- that's a destructive action the user should consent to). */
+	if (!existsSync(filePath)) {
+		const legacyPath = resolve("./data/agent.db");
+		if (legacyPath !== filePath && existsSync(legacyPath)) {
+			const lines = [
+				`[meta-ads-agent] Found a legacy audit database at ${legacyPath}.`,
+				`[meta-ads-agent] The new default location is ${filePath}.`,
+				"[meta-ads-agent] To preserve your existing audit history, run:",
+				`[meta-ads-agent]   mv ${legacyPath} ${filePath}`,
+				`[meta-ads-agent] Or set SQLITE_PATH=${legacyPath} to keep using the old location.`,
+			];
+			console.warn(lines.join("\n"));
+		}
+	}
+
 	const sqlite = new Database(filePath);
 
 	/* Enable WAL mode for better performance */
@@ -92,7 +113,11 @@ function createSqliteConnection(filePath: string): DatabaseConnection {
 export function createDatabase(config: DatabaseConfig): DatabaseConnection {
 	switch (config.type) {
 		case "sqlite": {
-			const path = config.sqlitePath ?? "./data/agent.db";
+			/* Default to the user's state dir so the daemon and clients converge
+			 * on the same file regardless of cwd. Mirrors the default in
+			 * config/types.ts -- kept in sync as a defensive fallback for
+			 * callers that construct DatabaseConfig directly. */
+			const path = config.sqlitePath ?? join(homedir(), ".meta-ads-agent", "agent.db");
 			return createSqliteConnection(path);
 		}
 
