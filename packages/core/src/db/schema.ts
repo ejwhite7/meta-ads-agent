@@ -98,6 +98,23 @@ export const agentDecisions = sqliteTable(
 		/** Error message if the tool execution failed */
 		errorMessage: text("error_message"),
 
+		/**
+		 * JSON-serialized snapshot of the affected campaign's metrics
+		 * captured by the BackfillEngine on a subsequent tick. NULL
+		 * until backfilled (or permanently NULL for decisions whose
+		 * params don't reference a single campaign, e.g. account-wide
+		 * reports). See packages/core/src/audit/backfill.ts.
+		 */
+		actualOutcome: text("actual_outcome"),
+
+		/**
+		 * JSON-serialized diff between the metrics that informed this
+		 * decision (latest snapshot before `timestamp`) and the metrics
+		 * captured by the BackfillEngine. NULL when no baseline
+		 * snapshot existed at decision time.
+		 */
+		performanceDelta: text("performance_delta"),
+
 		/** ISO 8601 timestamp when the decision was made */
 		timestamp: text("timestamp").notNull(),
 	},
@@ -109,6 +126,14 @@ export const agentDecisions = sqliteTable(
 		idxSession: index("idx_agent_decisions_session").on(t.sessionId),
 		idxAdAccount: index("idx_agent_decisions_account").on(t.adAccountId),
 		idxToolName: index("idx_agent_decisions_tool").on(t.toolName),
+		/* The backfill engine queries `WHERE success=1 AND actual_outcome IS NULL`
+		 * once per tick. This composite index keeps that scan O(pending) instead
+		 * of O(all decisions ever). */
+		idxPendingBackfill: index("idx_agent_decisions_pending_backfill").on(
+			t.adAccountId,
+			t.success,
+			t.actualOutcome,
+		),
 	}),
 );
 
@@ -193,3 +218,81 @@ export const agentConfig = sqliteTable("agent_config", {
 	/** ISO 8601 timestamp when this config was created */
 	createdAt: text("created_at").notNull(),
 });
+
+/**
+ * Per-campaign goal configuration.
+ *
+ * The agent stores one or more rows per (adAccountId, campaignId).
+ * The active goal is the most-recent row with `deletedAt === null`.
+ * Soft-delete + history-by-insert means every goal change is
+ * preserved -- nothing in this table is ever physically deleted.
+ *
+ * Without an active goal row, the agent records a `_pending_guidance`
+ * audit entry on each tick and refuses to make decisions on the
+ * campaign. See packages/core/src/goals/* and the agent loop.
+ */
+export const campaignGoals = sqliteTable(
+	"campaign_goals",
+	{
+		/** Surrogate auto-increment key (the row identity, not the goal identity). */
+		id: integer("id").primaryKey({ autoIncrement: true }),
+
+		/** Meta ad account ID. */
+		adAccountId: text("ad_account_id").notNull(),
+
+		/** Meta campaign ID this goal applies to. */
+		campaignId: text("campaign_id").notNull(),
+
+		/** Primary metric the agent optimizes for on this campaign. */
+		primaryKpi: text("primary_kpi").notNull(),
+
+		/** Target value for the primary KPI. */
+		primaryKpiTarget: real("primary_kpi_target").notNull(),
+
+		/** Whether higher (`maximize`) or lower (`minimize`) is better. */
+		primaryKpiDirection: text("primary_kpi_direction", {
+			enum: ["maximize", "minimize"],
+		}).notNull(),
+
+		/** JSON-serialized array of `SecondaryKpi` objects. NULL when none. */
+		secondaryKpis: text("secondary_kpis"),
+
+		/** Per-campaign override for account-wide guardrails. NULL = inherit. */
+		minDailyBudget: real("min_daily_budget"),
+		maxBudgetScaleFactor: real("max_budget_scale_factor"),
+		requireApprovalAbove: real("require_approval_above"),
+
+		/**
+		 * Meta objective at the time this goal was configured. If the
+		 * campaign's current objective drifts from this, the agent
+		 * re-prompts (records `_pending_guidance` and stops deciding).
+		 */
+		lastSeenObjective: text("last_seen_objective").notNull(),
+
+		/** ISO 8601 timestamp when the row was inserted. */
+		configuredAt: text("configured_at").notNull(),
+
+		/** Where the configuration came from (init-wizard / guidance-cmd / dashboard / api). */
+		configuredBy: text("configured_by").notNull(),
+
+		/** Free-form notes from the operator. */
+		notes: text("notes"),
+
+		/**
+		 * Soft-delete marker. Active goals have `deletedAt === null`.
+		 * Deleting a goal sets this; reconfiguring inserts a fresh row.
+		 */
+		deletedAt: text("deleted_at"),
+	},
+	(t) => ({
+		/* The hot lookup pattern is "give me the active goal for this
+		 * (account, campaign)" -- index on those plus deletedAt so the
+		 * planner can skip soft-deleted rows quickly. */
+		idxAccountCampaignDeleted: index("idx_campaign_goals_account_campaign_deleted").on(
+			t.adAccountId,
+			t.campaignId,
+			t.deletedAt,
+		),
+		idxAccount: index("idx_campaign_goals_account").on(t.adAccountId),
+	}),
+);

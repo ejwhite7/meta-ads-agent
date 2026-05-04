@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { AuditFilter, AuditRecord } from "./types.js";
+import type { AuditFilter, AuditRecord, BackfillUpdate, PendingBackfill } from "./types.js";
 
 /**
  * Minimal database interface required by the AuditLogger.
@@ -23,6 +23,21 @@ export interface AuditDatabase {
 
 	/** Query audit records with optional filters */
 	queryDecisions(filter: AuditFilter): Promise<AuditRecord[]>;
+
+	/**
+	 * Return successful decisions that have not yet had `actual_outcome`
+	 * filled in. Used by the BackfillEngine on every tick.
+	 */
+	listPendingBackfills(adAccountId: string): Promise<PendingBackfill[]>;
+
+	/**
+	 * Apply per-row outcome updates produced by the BackfillEngine.
+	 * The decisions table is otherwise append-only -- this is the
+	 * single sanctioned mutation path. Each id MUST already exist;
+	 * unknown ids are silently skipped (mirrors `UPDATE ... WHERE`
+	 * semantics rather than throwing).
+	 */
+	backfillOutcomes(updates: BackfillUpdate[]): Promise<void>;
 }
 
 /**
@@ -130,5 +145,26 @@ export class AuditLogger {
 		};
 
 		return this.db.queryDecisions(normalizedFilter);
+	}
+
+	/**
+	 * Lists decisions awaiting outcome backfill for the given account.
+	 * Thin pass-through to the underlying AuditDatabase implementation
+	 * so the BackfillEngine can stay decoupled from the storage layer.
+	 */
+	async listPendingBackfills(adAccountId: string): Promise<PendingBackfill[]> {
+		return this.db.listPendingBackfills(adAccountId);
+	}
+
+	/**
+	 * Persist the per-row outcome updates produced by the BackfillEngine.
+	 * Unlike `logDecision`, this DOES throw on failure -- backfill is
+	 * best-effort but callers (the agent session) wrap it in their own
+	 * try/catch and log a warning. Hiding errors here would silently
+	 * regress the audit history for whole tick batches.
+	 */
+	async backfillOutcomes(updates: BackfillUpdate[]): Promise<void> {
+		if (updates.length === 0) return;
+		await this.db.backfillOutcomes(updates);
 	}
 }

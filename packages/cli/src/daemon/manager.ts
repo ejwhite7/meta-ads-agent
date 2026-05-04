@@ -17,8 +17,11 @@ import { dirname, join } from "node:path";
 import {
 	AgentSession,
 	AuditLogger,
+	BackfillEngine,
+	CampaignGoalRepository,
 	ClaudeProvider,
 	DrizzleAuditDatabase,
+	DrizzleSnapshotWriter,
 	OpenAIProvider,
 	ToolRegistry,
 	allTools,
@@ -209,6 +212,19 @@ export class DaemonManager {
 		const auditDb = new DrizzleAuditDatabase(this.dbConnection.db);
 		const auditLogger = new AuditLogger(auditDb);
 
+		/* Snapshot writer: each tick persists one row per campaign into
+		 * `campaign_snapshots` so the dashboard's /api/campaigns endpoint
+		 * has data to read. Without this the table stays empty and the
+		 * dashboard silently shows nothing. */
+		const snapshotWriter = new DrizzleSnapshotWriter(this.dbConnection.db);
+
+		/* Backfill engine: each tick, grade the previous tick's successful
+		 * decisions by writing actual_outcome + performance_delta into the
+		 * audit log. Without this, the audit log records only what the
+		 * agent intended -- never what actually happened. */
+		const backfillEngine = new BackfillEngine(auditLogger, this.dbConnection.db);
+		const goalRepository = new CampaignGoalRepository(this.dbConnection.db);
+
 		/* ---- Build the tool registry: static tools + budget tools bound to client ---- */
 		const goals: AgentGoal = {
 			roasTarget: 3.0,
@@ -266,9 +282,12 @@ export class DaemonManager {
 			toolRegistry: registry,
 			llmProvider,
 			auditLogger,
+			snapshotWriter,
+			backfillEngine,
 			goals,
 			fetchMetrics,
 			metaClient,
+			goalRepository,
 		});
 
 		this.currentSessionId = this.session.getStatus().sessionId;

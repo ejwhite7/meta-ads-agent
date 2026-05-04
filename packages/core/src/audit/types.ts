@@ -49,8 +49,45 @@ export interface AuditRecord {
 	/** Error message if the tool execution failed */
 	readonly errorMessage: string | null;
 
+	/**
+	 * Snapshot of the affected campaign's metrics, captured by the
+	 * BackfillEngine on a subsequent tick. NULL until backfilled.
+	 */
+	readonly actualOutcome?: Record<string, unknown> | null;
+
+	/**
+	 * Diff between the metrics at decision time and the post-decision
+	 * snapshot captured by the BackfillEngine. NULL when no baseline
+	 * snapshot was available at decision time.
+	 */
+	readonly performanceDelta?: Record<string, unknown> | null;
+
 	/** ISO 8601 timestamp when the decision was made */
 	readonly timestamp?: string;
+}
+
+/**
+ * A single audit decision that has not yet had its outcome backfilled.
+ * Returned by AuditDatabase.listPendingBackfills so the BackfillEngine
+ * can pair the decision with the campaign's current and prior metrics.
+ */
+export interface PendingBackfill {
+	readonly id: string;
+	readonly adAccountId: string;
+	readonly toolName: string;
+	readonly params: Record<string, unknown>;
+	readonly timestamp: string;
+}
+
+/**
+ * Update applied to a single audit row by the BackfillEngine.
+ * `actualOutcome` is required (the whole point); `performanceDelta`
+ * may be null when no baseline snapshot existed.
+ */
+export interface BackfillUpdate {
+	readonly id: string;
+	readonly actualOutcome: Record<string, unknown>;
+	readonly performanceDelta: Record<string, unknown> | null;
 }
 
 /**

@@ -36,6 +36,8 @@ function makeDb() {
 			success INTEGER NOT NULL,
 			result_data TEXT,
 			error_message TEXT,
+			actual_outcome TEXT,
+			performance_delta TEXT,
 			timestamp TEXT NOT NULL
 		);
 	`);
