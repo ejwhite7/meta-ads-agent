@@ -257,7 +257,66 @@ export function registerDashboardCommand(program: Command): void {
 						...(startDate ? { startDate } : {}),
 						...(endDate ? { endDate } : {}),
 					});
-					return c.json(rows);
+
+					/* Enrich `_pending_guidance` rows with a `resolved` flag so the
+					 * dashboard can render them in grey ("since resolved") instead
+					 * of red ("failed") once an active goal exists for the campaign.
+					 *
+					 * Rationale: the audit log is append-only (DESIGN.md / AGENTS.md
+					 * — "it's the system of record"), so we can't rewrite the
+					 * historical row when the operator configures a goal a minute
+					 * later. But the UI was screaming red FAILED at rows that have
+					 * since been addressed, which is misleading. We don't filter
+					 * them out (per AGENTS.md "don't filter _pending_* without
+					 * reason"), we annotate them.
+					 *
+					 * Resolution rule: a `_pending_guidance` row is resolved iff an
+					 * active goal exists for the same (adAccountId, campaignId) AND
+					 * the goal's `lastSeenObjective` matches the row's params'
+					 * `currentObjective`. The objective check matters because
+					 * objective drift would re-emit pending-guidance, so a goal
+					 * configured for a different objective shouldn't mark this row
+					 * resolved. */
+					const pendingRows = rows.filter((r) => r.toolName === "_pending_guidance");
+					if (pendingRows.length === 0) return c.json(rows);
+
+					/* Build a (account, campaign) -> goal map for O(N) join.
+					 * listActive returns at most one goal per campaign so this is
+					 * cheap. We do this lookup ONLY when there are pending rows in
+					 * the result page — a successful tick stream skips it. */
+					const activeGoals = await goalRepo.listActive(cfg.metaAdAccountId);
+					const goalByCampaign = new Map(activeGoals.map((g) => [g.campaignId, g]));
+
+					const enriched = rows.map((r) => {
+						if (r.toolName !== "_pending_guidance") return r;
+						/* `r.params` is already an object on the backend AuditRecord
+						 * type — the frontend serializes it for transport. */
+						const parsed: Record<string, unknown> = r.params ?? {};
+						const campaignId = typeof parsed.campaignId === "string" ? parsed.campaignId : null;
+						const rowObjective =
+							typeof parsed.currentObjective === "string" ? parsed.currentObjective : null;
+						if (!campaignId) return { ...r, resolved: false };
+						const goal = goalByCampaign.get(campaignId);
+						if (!goal) return { ...r, resolved: false };
+						/* If the row recorded an objective and it doesn't match the
+						 * goal's, the goal isn't a resolution — the campaign drifted
+						 * since this row was written or the goal targets a different
+						 * objective entirely. */
+						if (
+							rowObjective &&
+							goal.lastSeenObjective &&
+							rowObjective.toUpperCase() !== goal.lastSeenObjective.toUpperCase()
+						) {
+							return { ...r, resolved: false };
+						}
+						return {
+							...r,
+							resolved: true,
+							resolvedByGoalDbId: goal.dbId,
+							resolvedAt: goal.configuredAt,
+						};
+					});
+					return c.json(enriched);
 				});
 
 				app.get("/api/campaigns", async (c) => {

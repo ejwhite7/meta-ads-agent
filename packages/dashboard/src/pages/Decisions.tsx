@@ -19,7 +19,7 @@ import { rangeToIso, useDateRange } from "../lib/date-range";
  * such a status -- audit rows are either successful, failed, or pending
  * approval. Removed from the dropdown to avoid an empty filter state.
  */
-type StatusFilter = "all" | "executed" | "failed" | "pending";
+type StatusFilter = "all" | "executed" | "failed" | "pending" | "resolved";
 
 /**
  * Full decision log page with search and status filtering.
@@ -74,6 +74,7 @@ export function Decisions(): React.ReactElement {
 					<option value="executed">Successful</option>
 					<option value="failed">Failed</option>
 					<option value="pending">Pending Approval</option>
+					<option value="resolved">Resolved</option>
 				</select>
 			</div>
 
@@ -154,6 +155,10 @@ function DecisionTableRow({
 		executed: "bg-green-100 text-green-800",
 		failed: "bg-red-100 text-red-800",
 		pending: "bg-yellow-100 text-yellow-800",
+		/* Resolved = a `_pending_guidance` row whose campaign now has an
+		 * active goal. Grey-on-grey so it doesn't shout "failed" at the
+		 * operator after they've already addressed it. */
+		resolved: "bg-gray-100 text-gray-600 line-through",
 	};
 
 	/* The backend stores only `reasoning` (text) and `success` (bool).
