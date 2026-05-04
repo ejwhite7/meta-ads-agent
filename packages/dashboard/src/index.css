@@ -1,0 +1,44 @@
+/**
+ * Global stylesheet entry for the dashboard SPA.
+ *
+ * Imported once from `main.tsx`. Without this file (and the `import` of
+ * it), Vite has no reason to invoke PostCSS, Tailwind never emits its
+ * stylesheet, and the entire UI renders as unstyled HTML even though
+ * every component is decorated with Tailwind classes (`flex`, `bg-*`,
+ * `rounded-*`, etc.). This is exactly what shipped in the initial
+ * dashboard scaffold and was discovered when the bundled
+ * `meta-ads-agent dashboard` command rendered a wall of grey text.
+ *
+ * The three @tailwind directives below are the standard set:
+ *   - `base`        Tailwind's CSS reset + element-level defaults.
+ *   - `components`  Layer where shadcn/ui components register their
+ *                   composable rules.
+ *   - `utilities`   The atomic utility classes (most of what we use).
+ *
+ * Add bespoke global rules below the directives if needed; do NOT add
+ * any imports above them.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Sensible defaults for the document body so the SPA fills the viewport
+ * even before the React tree mounts. Tailwind's `base` layer handles most
+ * normalization; this just nails down full-height/dark-text/no-margin. */
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	font-family:
+		ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+		Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+	color: rgb(17 24 39); /* tailwind gray-900 */
+	background: rgb(249 250 251); /* tailwind gray-50 */
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
