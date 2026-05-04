@@ -9,6 +9,7 @@
 import type { AuditLogger } from "../audit/logger.js";
 import type { AgentConfig } from "../config/types.js";
 import type { ActionProposal, GuardrailConfig } from "../decisions/types.js";
+import type { CampaignGoal, CampaignGoalRepository, PendingGuidance } from "../goals/index.js";
 import type { LLMProvider } from "../llm/types.js";
 import type { ToolRegistry } from "../tools/registry.js";
 import type { AgentAction, AgentGoal, CampaignMetrics, PendingAction } from "../types.js";
@@ -40,6 +41,30 @@ export interface AgentLoopContext {
 
 	/** Ad account ID for context in prompts */
 	readonly adAccountId: string;
+
+	/**
+	 * Per-campaign goal store. Required for the agent to act on any
+	 * campaign -- campaigns without an active goal are routed to
+	 * `pendingGuidance` and excluded from decision-making.
+	 *
+	 * Optional only to keep older test fixtures working; production
+	 * callers (AgentSession) always pass it.
+	 */
+	readonly goalRepository?: CampaignGoalRepository;
+
+	/**
+	 * Map of campaignId -> current Meta objective. Used for
+	 * objective-drift detection: if a campaign's current objective
+	 * differs from the goal's `lastSeenObjective`, the agent
+	 * re-prompts (records pending-guidance, soft-deletes the goal).
+	 *
+	 * Populated by the session from `client.campaigns.list()` before
+	 * calling the loop.
+	 */
+	readonly campaignObjectives?: Map<
+		string,
+		{ name: string; objective: string; status: string; dailyBudget: number | null }
+	>;
 }
 
 /**
@@ -54,6 +79,16 @@ export interface AgentLoopResult {
 
 	/** Proposals that exceeded guardrails and require human approval */
 	readonly pendingActions: PendingAction[];
+
+	/**
+	 * Campaigns that need operator guidance before the agent will act on
+	 * them (no goal configured, objective changed, or goal soft-deleted).
+	 * The agent records `_pending_guidance` audit rows for each.
+	 */
+	readonly pendingGuidance: PendingGuidance[];
+
+	/** Per-campaign goals applied this tick (for audit / surfacing). */
+	readonly appliedGoals: CampaignGoal[];
 
 	/** Full LLM reasoning text for audit logging */
 	readonly reasoning: string;
@@ -139,9 +174,43 @@ export interface AgentSessionConfig {
 	/** Function to fetch current campaign metrics (injected for testability) */
 	readonly fetchMetrics: () => Promise<CampaignMetrics[]>;
 
+	/**
+	 * Per-campaign goal store. Required for the agent to act on
+	 * campaigns -- without it, every campaign falls into the legacy
+	 * "all-actionable" path (see filterByGoals in agent/loop.ts).
+	 */
+	readonly goalRepository?: import("../goals/index.js").CampaignGoalRepository;
+
 	/** Meta API client instance */
 	// biome-ignore lint/suspicious/noExplicitAny: accepts any MetaClient-compatible object
 	readonly metaClient: any;
+
+	/**
+	 * Optional writer that persists per-tick campaign metrics into the
+	 * `campaign_snapshots` table. When provided, the session writes
+	 * one snapshot per campaign per tick immediately after
+	 * `fetchMetrics` returns. Snapshot persistence is best-effort:
+	 * write failures are logged and swallowed so they do not abort
+	 * the OODA cycle (see AgentSession.executeTick).
+	 *
+	 * If omitted, snapshots are not persisted -- the agent still
+	 * functions, but the dashboard's `/api/campaigns` endpoint will
+	 * see no historical data.
+	 */
+	readonly snapshotWriter?: import("../snapshots/writer.js").SnapshotWriter;
+
+	/**
+	 * Optional engine that backfills `actual_outcome` and
+	 * `performance_delta` on prior-tick decisions. When provided, the
+	 * session calls `backfillEngine.run(currentMetrics, adAccountId)`
+	 * after fetching metrics and writing the new snapshot, but BEFORE
+	 * the OODA loop runs. Failure is best-effort: backfill problems
+	 * are logged and swallowed so they cannot abort a tick.
+	 *
+	 * If omitted, decisions accumulate without outcome data --
+	 * existing behavior pre-CLAUDE.md §6 implementation.
+	 */
+	readonly backfillEngine?: import("../audit/backfill.js").BackfillEngine;
 }
 
 /**

@@ -95,13 +95,42 @@ export {
 	agentDecisions,
 	campaignSnapshots,
 	agentConfig,
+	campaignGoals,
 } from "./db/schema.js";
 
 /* === Audit Logging === */
 export { AuditLogger } from "./audit/logger.js";
 export type { AuditDatabase } from "./audit/logger.js";
 export { DrizzleAuditDatabase } from "./audit/drizzle-adapter.js";
-export type { AuditRecord, AuditFilter } from "./audit/types.js";
+export type {
+	AuditRecord,
+	AuditFilter,
+	BackfillUpdate,
+	PendingBackfill,
+} from "./audit/types.js";
+export { BackfillEngine } from "./audit/backfill.js";
+export type { BackfillRunResult } from "./audit/backfill.js";
+
+/* === Campaign snapshots === */
+export { DrizzleSnapshotWriter } from "./snapshots/writer.js";
+export type { SnapshotWriter } from "./snapshots/writer.js";
+
+/* === Per-campaign goals === */
+export {
+	CampaignGoalRepository,
+	inferDefaultKpi,
+	KNOWN_OBJECTIVES,
+} from "./goals/index.js";
+export type {
+	CampaignGoal,
+	CampaignGoalInput,
+	DefaultGoal,
+	KpiDirection,
+	PendingGuidance,
+	PendingGuidanceReason,
+	PrimaryKpi,
+	SecondaryKpi,
+} from "./goals/index.js";
 
 /* === Configuration === */
 export { loadConfig } from "./config/index.js";

@@ -23,10 +23,15 @@
  */
 
 /**
- * Schema bootstrap SQL for SQLite. Mirrors `db/migrations/0000_initial.sql`.
- * Every statement is `IF NOT EXISTS`, so this can be applied unconditionally.
+ * Tables-only bootstrap. Run BEFORE `SQLITE_BOOTSTRAP_ALTERS` so the
+ * ALTERs can add columns to existing tables, and BEFORE
+ * `SQLITE_BOOTSTRAP_INDEXES` so the indexes can reference any newly-
+ * added columns.
+ *
+ * Every CREATE TABLE is `IF NOT EXISTS`, so this can be applied
+ * unconditionally.
  */
-export const SQLITE_BOOTSTRAP_SQL = `
+export const SQLITE_BOOTSTRAP_TABLES_SQL = `
 -- Agent sessions table: tracks agent session lifecycle and state
 CREATE TABLE IF NOT EXISTS agent_sessions (
   id TEXT PRIMARY KEY,
@@ -54,6 +59,9 @@ CREATE TABLE IF NOT EXISTS agent_decisions (
   success INTEGER NOT NULL,
   result_data TEXT,
   error_message TEXT,
+  -- Backfilled on a subsequent tick by the BackfillEngine. JSON.
+  actual_outcome TEXT,
+  performance_delta TEXT,
   timestamp TEXT NOT NULL
 );
 
@@ -84,7 +92,38 @@ CREATE TABLE IF NOT EXISTS agent_config (
   created_at TEXT NOT NULL
 );
 
--- Indexes for efficient queries
+-- Per-campaign goal configuration (see packages/core/src/goals/)
+-- Soft-delete + history-by-insert: the active goal is the most-recent
+-- row with deleted_at IS NULL for a given (ad_account_id, campaign_id).
+CREATE TABLE IF NOT EXISTS campaign_goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ad_account_id TEXT NOT NULL,
+  campaign_id TEXT NOT NULL,
+  primary_kpi TEXT NOT NULL,
+  primary_kpi_target REAL NOT NULL,
+  primary_kpi_direction TEXT NOT NULL CHECK (primary_kpi_direction IN ('maximize', 'minimize')),
+  secondary_kpis TEXT,
+  min_daily_budget REAL,
+  max_budget_scale_factor REAL,
+  require_approval_above REAL,
+  last_seen_objective TEXT NOT NULL,
+  configured_at TEXT NOT NULL,
+  configured_by TEXT NOT NULL,
+  notes TEXT,
+  deleted_at TEXT
+);
+
+`;
+
+/**
+ * Indexes-only bootstrap. Run AFTER `SQLITE_BOOTSTRAP_ALTERS` so any
+ * indexes that reference newly-added columns (e.g.
+ * `idx_agent_decisions_pending_backfill` references `actual_outcome`,
+ * which was added later via ALTER TABLE) can resolve those columns.
+ *
+ * Every CREATE INDEX is `IF NOT EXISTS`.
+ */
+export const SQLITE_BOOTSTRAP_INDEXES_SQL = `
 CREATE INDEX IF NOT EXISTS idx_decisions_session_id ON agent_decisions (session_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_ad_account ON agent_decisions (ad_account_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON agent_decisions (timestamp);
@@ -93,7 +132,41 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_campaign ON campaign_snapshots (campaig
 CREATE INDEX IF NOT EXISTS idx_snapshots_ad_account ON campaign_snapshots (ad_account_id);
 CREATE INDEX IF NOT EXISTS idx_config_ad_account ON agent_config (ad_account_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_ad_account ON agent_sessions (ad_account_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_goals_account_campaign_deleted ON campaign_goals (ad_account_id, campaign_id, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_campaign_goals_account ON campaign_goals (ad_account_id);
+CREATE INDEX IF NOT EXISTS idx_agent_decisions_pending_backfill ON agent_decisions (ad_account_id, success, actual_outcome);
 `;
+
+/**
+ * Backwards-compatibility alias. Older external consumers (tests in
+ * other packages, downstream embeddings) imported `SQLITE_BOOTSTRAP_SQL`
+ * as the single string. We now split it into TABLES + INDEXES so the
+ * upgrade-path ALTERs can run between them, but a concatenated form
+ * still applies all statements -- safe on a fresh DB only.
+ */
+export const SQLITE_BOOTSTRAP_SQL = SQLITE_BOOTSTRAP_TABLES_SQL + SQLITE_BOOTSTRAP_INDEXES_SQL;
+
+/**
+ * Idempotent ALTER TABLE statements run AFTER the CREATE TABLE block.
+ *
+ * SQLite does not support `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`,
+ * so we issue the ALTER and swallow the "duplicate column name" error
+ * that fires when the column already exists. This handles the upgrade
+ * path for users whose DB was created before backfill columns existed.
+ *
+ * Each entry is { sql, ignoreIfContains } -- the second field is the
+ * substring of the SQLite error message we accept as "already applied."
+ */
+const SQLITE_BOOTSTRAP_ALTERS: Array<{ sql: string; ignoreIfContains: string }> = [
+	{
+		sql: "ALTER TABLE agent_decisions ADD COLUMN actual_outcome TEXT;",
+		ignoreIfContains: "duplicate column name",
+	},
+	{
+		sql: "ALTER TABLE agent_decisions ADD COLUMN performance_delta TEXT;",
+		ignoreIfContains: "duplicate column name",
+	},
+];
 
 /**
  * better-sqlite3 Database-shaped subset we need for bootstrap.
@@ -114,5 +187,28 @@ interface SqliteHandle {
  *   than silently running against an unpopulated DB.
  */
 export function bootstrapSqliteSchema(db: SqliteHandle): void {
-	db.exec(SQLITE_BOOTSTRAP_SQL);
+	/* 1. Tables first. Idempotent (CREATE TABLE IF NOT EXISTS). */
+	db.exec(SQLITE_BOOTSTRAP_TABLES_SQL);
+
+	/* 2. ALTER TABLE statements for the upgrade path. SQLite has no
+	 *    `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, so we swallow the
+	 *    "duplicate column name" error that fires when the column was
+	 *    already added (typical on fresh DBs since the CREATE TABLE
+	 *    above already includes the column). Any other error is real
+	 *    and propagates. */
+	for (const alter of SQLITE_BOOTSTRAP_ALTERS) {
+		try {
+			db.exec(alter.sql);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (!msg.toLowerCase().includes(alter.ignoreIfContains)) {
+				throw err;
+			}
+		}
+	}
+
+	/* 3. Indexes last so any index that references a newly-added column
+	 *    (e.g. idx_agent_decisions_pending_backfill on actual_outcome)
+	 *    can resolve the column on a legacy DB whose ALTER just ran. */
+	db.exec(SQLITE_BOOTSTRAP_INDEXES_SQL);
 }

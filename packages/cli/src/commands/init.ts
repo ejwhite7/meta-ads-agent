@@ -339,6 +339,53 @@ export function registerInitCommand(program: Command): void {
 				);
 			}
 
+			/* ----------------------------------------------------------------
+			 * Step 8 (new): per-campaign goal configuration.
+			 *
+			 * The agent refuses to make decisions on campaigns without an
+			 * active goal in `campaign_goals`. We don't *force* the operator
+			 * to configure every campaign now -- they can do it later via
+			 * `meta-ads-agent guidance` -- but we offer the path here so a
+			 * fresh setup converges to a working state in one wizard run.
+			 * ---------------------------------------------------------------- */
+			if (validation.valid) {
+				const { runGuidance } = await inquirer.prompt<{ runGuidance: boolean }>([
+					{
+						type: "confirm",
+						name: "runGuidance",
+						message:
+							"Configure per-campaign goals now? (You can do this later with " +
+							"`meta-ads-agent guidance` -- the agent will not act on any campaign " +
+							"until it has a goal.)",
+						default: true,
+					},
+				]);
+				if (runGuidance) {
+					try {
+						/* Lazy-imported to keep init.ts decoupled from the goal
+						 * stack -- some test environments stub the network and
+						 * don't want to actually open a DB. */
+						const [{ runInteractiveGoalSetup }] = await Promise.all([
+							import("./guidance-helpers.js"),
+						]);
+						await runInteractiveGoalSetup({
+							metaAccessToken,
+							metaAdAccountId,
+						});
+					} catch (err: unknown) {
+						const msg = err instanceof Error ? err.message : String(err);
+						error(
+							`Could not run goal setup: ${msg}\nYou can run \`meta-ads-agent guidance\` later to configure goals.`,
+						);
+					}
+				} else {
+					success(
+						"Skipped goal setup. Run `meta-ads-agent guidance` when ready -- " +
+							"the agent will treat every campaign as pending until configured.",
+					);
+				}
+			}
+
 			// Summary
 			section("Setup Complete");
 			console.log(`  Ad Account:            ${metaAdAccountId}`);

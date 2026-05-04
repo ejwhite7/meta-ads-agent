@@ -9,10 +9,10 @@
  * because the underlying schema stores them as TEXT for backend portability.
  */
 
-import { type SQL, and, desc, eq, gte, lte } from "drizzle-orm";
+import { type SQL, and, asc, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { agentDecisions } from "../db/schema.js";
 import type { AuditDatabase } from "./logger.js";
-import type { AuditFilter, AuditRecord } from "./types.js";
+import type { AuditFilter, AuditRecord, BackfillUpdate, PendingBackfill } from "./types.js";
 
 /**
  * Drizzle-backed implementation of {@link AuditDatabase}.
@@ -41,8 +41,64 @@ export class DrizzleAuditDatabase implements AuditDatabase {
 			success: record.success,
 			resultData: record.resultData ? JSON.stringify(record.resultData) : null,
 			errorMessage: record.errorMessage ?? null,
+			actualOutcome: record.actualOutcome ? JSON.stringify(record.actualOutcome) : null,
+			performanceDelta: record.performanceDelta ? JSON.stringify(record.performanceDelta) : null,
 			timestamp: record.timestamp ?? new Date().toISOString(),
 		});
+	}
+
+	async listPendingBackfills(adAccountId: string): Promise<PendingBackfill[]> {
+		/* Pending = successful decision (i.e. the agent actually changed
+		 * something on Meta) whose outcome has not yet been recorded.
+		 * Failed and skipped decisions never get backfilled because the
+		 * delta would be meaningless. Order ascending by timestamp so the
+		 * BackfillEngine processes oldest first -- helpful when there are
+		 * many tick-intervals' worth of unbackfilled rows after an outage. */
+		const rows = await this.db
+			.select({
+				id: agentDecisions.id,
+				adAccountId: agentDecisions.adAccountId,
+				toolName: agentDecisions.toolName,
+				params: agentDecisions.params,
+				timestamp: agentDecisions.timestamp,
+			})
+			.from(agentDecisions)
+			.where(
+				and(
+					eq(agentDecisions.adAccountId, adAccountId),
+					eq(agentDecisions.success, true),
+					isNull(agentDecisions.actualOutcome),
+				),
+			)
+			.orderBy(asc(agentDecisions.timestamp));
+
+		// biome-ignore lint/suspicious/noExplicitAny: drizzle row shape is opaque
+		return (rows as any[]).map((r) => ({
+			id: r.id,
+			adAccountId: r.adAccountId,
+			toolName: r.toolName,
+			params: r.params ? JSON.parse(r.params) : {},
+			timestamp: r.timestamp,
+		}));
+	}
+
+	async backfillOutcomes(updates: BackfillUpdate[]): Promise<void> {
+		if (updates.length === 0) return;
+		/* Drizzle has no portable batched-UPDATE-by-id construct that
+		 * works identically across SQLite and Postgres dialects, so we
+		 * issue one UPDATE per row. Backfill batches are small (one
+		 * row per successful decision per tick, typically <10) so the
+		 * round-trip cost is negligible. If this ever becomes hot, swap
+		 * to a single CASE-WHEN UPDATE or per-dialect bulk path. */
+		for (const u of updates) {
+			await this.db
+				.update(agentDecisions)
+				.set({
+					actualOutcome: JSON.stringify(u.actualOutcome),
+					performanceDelta: u.performanceDelta ? JSON.stringify(u.performanceDelta) : null,
+				})
+				.where(eq(agentDecisions.id, u.id));
+		}
 	}
 
 	async queryDecisions(filter: AuditFilter): Promise<AuditRecord[]> {
@@ -96,6 +152,8 @@ export class DrizzleAuditDatabase implements AuditDatabase {
 			success: r.success,
 			resultData: r.resultData ? JSON.parse(r.resultData) : null,
 			errorMessage: r.errorMessage,
+			actualOutcome: r.actualOutcome ? JSON.parse(r.actualOutcome) : null,
+			performanceDelta: r.performanceDelta ? JSON.parse(r.performanceDelta) : null,
 			timestamp: r.timestamp,
 		}));
 	}

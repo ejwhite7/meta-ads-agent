@@ -189,6 +189,85 @@ export class AgentSession {
 			/* Fetch current metrics from Meta */
 			const metrics = await this.sessionConfig.fetchMetrics();
 
+			/* Persist snapshots BEFORE running the loop so the dashboard
+			 * reflects the same data the agent is about to reason over.
+			 * Snapshot persistence is best-effort: a DB hiccup must not
+			 * cancel the tick, since the agent reasons over the in-memory
+			 * `metrics` array directly. */
+			if (this.sessionConfig.snapshotWriter && metrics.length > 0) {
+				try {
+					await this.sessionConfig.snapshotWriter.writeSnapshots(
+						metrics,
+						this.sessionConfig.config.metaAdAccountId,
+					);
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[AgentSession] Failed to persist campaign snapshots: ${msg}`);
+				}
+			}
+
+			/* Backfill outcomes for prior-tick decisions BEFORE running the
+			 * loop. Order matters: the snapshot we just wrote becomes the
+			 * `actual_outcome` for any decision made on the previous tick,
+			 * and we want the loop to reason over fully-graded history if
+			 * future tools query it. Failures are logged and swallowed --
+			 * stale outcome data is strictly better than aborting the tick. */
+			if (this.sessionConfig.backfillEngine && metrics.length > 0) {
+				try {
+					const summary = await this.sessionConfig.backfillEngine.run(
+						metrics,
+						this.sessionConfig.config.metaAdAccountId,
+					);
+					if (summary.backfilledCount > 0 || summary.errored > 0) {
+						console.log(
+							`[AgentSession] Backfill: ${summary.backfilledCount}/${summary.pendingCount} ` +
+								`updated (skipped: ${summary.skippedNoCurrentMetrics} no-current, ` +
+								`${summary.skippedNoCampaignId} no-campaign-id, errored: ${summary.errored})`,
+						);
+					}
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					console.warn(`[AgentSession] Backfill engine failed: ${msg}`);
+				}
+			}
+
+			/* Build the campaignId -> objective map so the loop can detect
+			 * objective drift. Any failure here is non-fatal -- the loop
+			 * just won't be able to detect drift this tick. */
+			const campaignObjectives = new Map<
+				string,
+				{ name: string; objective: string; status: string; dailyBudget: number | null }
+			>();
+			try {
+				const metaClient = this.sessionConfig.metaClient as
+					| { campaigns?: { list?: (id: string) => Promise<unknown[]> } }
+					| undefined;
+				if (metaClient?.campaigns?.list) {
+					const rawList = (await metaClient.campaigns.list(
+						this.sessionConfig.config.metaAdAccountId,
+					)) as Array<{
+						id?: string;
+						name?: string;
+						objective?: string;
+						status?: string;
+						daily_budget?: string;
+					}>;
+					for (const c of rawList) {
+						if (!c.id) continue;
+						const budgetCents = c.daily_budget ? Number.parseInt(c.daily_budget, 10) : Number.NaN;
+						campaignObjectives.set(c.id, {
+							name: c.name ?? c.id,
+							objective: c.objective ?? "unknown",
+							status: c.status ?? "unknown",
+							dailyBudget: Number.isFinite(budgetCents) ? budgetCents / 100 : null,
+						});
+					}
+				}
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[AgentSession] Failed to load campaign list for goal lookup: ${msg}`);
+			}
+
 			/* Run the stateless OODA loop */
 			loopResult = await runAgentLoop({
 				metrics,
@@ -198,7 +277,38 @@ export class AgentSession {
 				maxProposals: 5,
 				guardrails: this.sessionConfig.guardrails,
 				adAccountId: this.sessionConfig.config.metaAdAccountId,
+				goalRepository: this.sessionConfig.goalRepository,
+				campaignObjectives,
 			});
+
+			/* Persist pending-guidance entries so the operator sees them via
+			 * `meta-ads-agent decisions` and the dashboard. We use a
+			 * distinctive synthetic toolName (`_pending_guidance`) so they
+			 * stand out from real tool invocations. */
+			for (const pg of loopResult.pendingGuidance ?? []) {
+				await this.sessionConfig.auditLogger.logDecision({
+					sessionId: this.sessionId,
+					adAccountId: this.sessionConfig.config.metaAdAccountId,
+					toolName: "_pending_guidance",
+					params: {
+						campaignId: pg.campaignId,
+						campaignName: pg.campaignName,
+						currentObjective: pg.currentObjective,
+						status: pg.status,
+						dailyBudget: pg.dailyBudget,
+						reason: pg.reason,
+						...(pg.previousObjective ? { previousObjective: pg.previousObjective } : {}),
+					},
+					reasoning: `Campaign "${pg.campaignName}" requires guidance: ${pg.reason}.`,
+					expectedOutcome: "PENDING_GUIDANCE",
+					score: 0,
+					riskLevel: "high",
+					success: false,
+					resultData: null,
+					errorMessage:
+						"Configure a goal via `meta-ads-agent guidance` (CLI) or the dashboard before the agent will act on this campaign.",
+				});
+			}
 
 			/* Execute approved actions via the tool executor */
 			const toolContext: ToolContext = {
