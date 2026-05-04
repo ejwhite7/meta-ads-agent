@@ -10,6 +10,7 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { type AuditRecord, decisionParams, decisionStatus } from "../api/client";
 import { useDecisions } from "../hooks/useDecisions";
+import { rangeToIso, useDateRange } from "../lib/date-range";
 
 /**
  * Status filter options for the decision log.
@@ -27,7 +28,13 @@ export function Decisions(): React.ReactElement {
 	const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 	const [searchQuery, setSearchQuery] = useState("");
 
-	const { decisions, loading, error } = useDecisions({ limit: 200 });
+	const { range } = useDateRange();
+	const iso = rangeToIso(range);
+	const { decisions, loading, error } = useDecisions({
+		limit: 200,
+		startDate: iso.startDate,
+		endDate: iso.endDate,
+	});
 
 	/* Filtering happens client-side because the /api/decisions endpoint
 	 * doesn't yet honor status/search query params. We fetch a generous

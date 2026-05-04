@@ -157,7 +157,6 @@ export function registerDashboardCommand(program: Command): void {
 					postgresUrl: cfg.postgresUrl,
 				});
 				const auditLogger = new AuditLogger(new DrizzleAuditDatabase(dbConn.db));
-				void auditLogger; /* reserved for future filtered queries */
 				const ipc = new IpcClient();
 
 				const app = new Hono();
@@ -220,12 +219,17 @@ export function registerDashboardCommand(program: Command): void {
 				app.get("/api/decisions", async (c) => {
 					const limit = clampInt(c.req.query("limit"), 100, 1, 500);
 					const offset = clampInt(c.req.query("offset"), 0, 0, 1_000_000);
-					const rows = await dbConn.db
-						.select()
-						.from(agentDecisions)
-						.orderBy(desc(agentDecisions.timestamp))
-						.limit(limit)
-						.offset(offset);
+					const startDate = c.req.query("startDate");
+					const endDate = c.req.query("endDate");
+					/* Route through AuditLogger so the filter logic stays centralized
+					 * with the rest of audit-querying code (toolName, sessionId,
+					 * adAccountId, riskLevel, success, date range -- all in one place). */
+					const rows = await auditLogger.getDecisions({
+						limit,
+						offset,
+						...(startDate ? { startDate } : {}),
+						...(endDate ? { endDate } : {}),
+					});
 					return c.json(rows);
 				});
 

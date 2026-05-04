@@ -22,7 +22,8 @@ import { Buffer } from "node:buffer";
 import { timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import {
-	agentDecisions,
+	AuditLogger,
+	DrizzleAuditDatabase,
 	agentSessions,
 	campaignSnapshots,
 	createDatabase,
@@ -204,16 +205,23 @@ app.get("/api/status", async (c) => {
  *   limit   Maximum records to return (default 100)
  *   offset  Pagination offset (default 0)
  */
+/* Audit logger wraps the DB so the filter logic for /api/decisions
+ * matches the rest of the codebase (PR #15 added date-range support to
+ * AuditFilter). Direct Drizzle queries here would re-implement that. */
+const auditLogger = new AuditLogger(new DrizzleAuditDatabase(db));
+
 app.get("/api/decisions", async (c) => {
 	const limit = clampInt(c.req.query("limit"), 100, 1, 500);
 	const offset = clampInt(c.req.query("offset"), 0, 0, 1_000_000);
+	const startDate = c.req.query("startDate");
+	const endDate = c.req.query("endDate");
 
-	const rows = await db
-		.select()
-		.from(agentDecisions)
-		.orderBy(desc(agentDecisions.timestamp))
-		.limit(limit)
-		.offset(offset);
+	const rows = await auditLogger.getDecisions({
+		limit,
+		offset,
+		...(startDate ? { startDate } : {}),
+		...(endDate ? { endDate } : {}),
+	});
 
 	return c.json(rows);
 });
