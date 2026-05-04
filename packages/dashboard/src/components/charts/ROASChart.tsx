@@ -1,9 +1,14 @@
 /**
  * ROAS trend line chart.
  *
- * Renders a Recharts LineChart showing the Return on Ad Spend
- * trend over the last 30 days, with a reference line at the
- * ROAS target for visual comparison.
+ * 30-day daily ROAS pulled from `GET /api/metrics/timeseries`. The
+ * red dashed reference line shows the active ROAS target. Pre-PR #29
+ * this chart used hardcoded placeholder data.
+ *
+ * The reference target is currently a fixed 4.0 — the per-campaign
+ * goals system makes a single account-wide target somewhat arbitrary.
+ * A future PR can compute this as the spend-weighted average of
+ * campaigns whose primary KPI is `roas`.
  */
 
 import type React from "react";
@@ -17,47 +22,48 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
+import { useMetricsTimeseries } from "../../hooks/useMetrics";
 
-/**
- * Data point for the ROAS chart.
- */
 interface ROASDataPoint {
 	date: string;
 	roas: number;
 }
 
-/** Default ROAS target shown as a reference line. */
 const ROAS_TARGET = 4.0;
 
-/**
- * Generate placeholder data for the last 30 days.
- * In production, this would be replaced with real API data.
- */
-function generatePlaceholderData(): ROASDataPoint[] {
-	const data: ROASDataPoint[] = [];
-	const now = new Date();
-
-	for (let i = 29; i >= 0; i--) {
-		const date = new Date(now);
-		date.setDate(date.getDate() - i);
-		data.push({
-			date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-			roas: 0,
-		});
-	}
-
-	return data;
+function formatDateLabel(iso: string): string {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) return iso;
+	return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-/**
- * ROAS trend chart with target reference line.
- */
 export function ROASChart(): React.ReactElement {
-	const data = generatePlaceholderData();
+	const { data, loading, error } = useMetricsTimeseries(30);
+
+	if (loading) {
+		return (
+			<div className="h-[300px] flex items-center justify-center text-sm text-gray-400">
+				Loading ROAS timeseries…
+			</div>
+		);
+	}
+
+	if (error || !data) {
+		return (
+			<div className="h-[300px] flex items-center justify-center text-sm text-yellow-700 bg-yellow-50 rounded">
+				{error ?? "No data returned."}
+			</div>
+		);
+	}
+
+	const points: ROASDataPoint[] = data.points.map((p) => ({
+		date: formatDateLabel(p.date),
+		roas: p.roas,
+	}));
 
 	return (
 		<ResponsiveContainer width="100%" height={300}>
-			<LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+			<LineChart data={points} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
 				<CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
 				<XAxis
 					dataKey="date"

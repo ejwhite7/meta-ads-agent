@@ -72,6 +72,9 @@ export class InsightsEndpoints {
 		if (params.filtering && params.filtering.length > 0) {
 			apiParams.filtering = JSON.stringify(params.filtering);
 		}
+		if (params.time_increment !== undefined) {
+			apiParams.time_increment = params.time_increment;
+		}
 
 		const response = await this.api.get<ApiResponse<InsightsResult[]>>(`/${adAccountId}/insights`, {
 			params: apiParams,
