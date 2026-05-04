@@ -211,6 +211,47 @@ export interface CampaignGoalUpsert {
 }
 
 /**
+ * Account-level summary returned by `GET /api/metrics/summary`.
+ * Live data from MetaClient.insights at `level: "account"` for both
+ * the current N-day window and the immediately-prior N-day window,
+ * with percentage deltas precomputed server-side.
+ */
+export interface MetricsBucket {
+	spend: number;
+	roas: number;
+	cpa: number;
+	conversions: number;
+}
+
+export interface MetricsSummary {
+	windowDays: number;
+	current: MetricsBucket;
+	prior: MetricsBucket;
+	delta: {
+		spendPct: number;
+		roasPct: number;
+		cpaPct: number;
+		conversionsPct: number;
+	};
+}
+
+/**
+ * Daily time-series point returned by `GET /api/metrics/timeseries`.
+ * Used by the spend + ROAS line charts on the Overview page.
+ */
+export interface MetricsTimeseriesPoint {
+	date: string;
+	spend: number;
+	roas: number;
+	conversions: number;
+}
+
+export interface MetricsTimeseries {
+	days: number;
+	points: MetricsTimeseriesPoint[];
+}
+
+/**
  * Hierarchical campaign view returned by `GET /api/campaigns`.
  *
  * Lookback window (default 7d) is controlled by the
@@ -354,6 +395,23 @@ export const api = {
 	 */
 	getCampaigns(): Promise<CampaignMetrics[]> {
 		return request<CampaignMetrics[]>("/api/campaigns");
+	},
+
+	/**
+	 * Account-level Insights aggregations for the Overview page.
+	 * Both endpoints hit the live Marketing API; expect 502 if the
+	 * configured token is invalid.
+	 */
+	metrics: {
+		/** Spend / ROAS / CPA / Conversions for current vs prior window. */
+		summary(days = 7): Promise<MetricsSummary> {
+			return request<MetricsSummary>(`/api/metrics/summary?days=${days}`);
+		},
+
+		/** Daily { spend, roas, conversions } for the spend & ROAS charts. */
+		timeseries(days = 30): Promise<MetricsTimeseries> {
+			return request<MetricsTimeseries>(`/api/metrics/timeseries?days=${days}`);
+		},
 	},
 
 	/**

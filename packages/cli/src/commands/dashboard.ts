@@ -515,6 +515,134 @@ export function registerDashboardCommand(program: Command): void {
 				 * with the same `PendingGuidanceReason` vocabulary the agent uses.
 				 */
 
+				/* ---- Account-level metrics for the Overview page ----
+				 *
+				 * Pre-this-PR the Overview page rendered hardcoded zeros for
+				 * Total Spend / Avg ROAS / Avg CPA / Conversions and a flat
+				 * zero line for the spend + ROAS time-series charts. The
+				 * components had a TODO comment apologizing for it ("In
+				 * production these come from the campaign metrics API") and
+				 * never made it into production.
+				 *
+				 * Both endpoints below pull live insights from Meta. Same
+				 * MetaClient + parseInsightsToMetrics path the agent uses,
+				 * so the numbers shown on the dashboard match what the agent
+				 * is reasoning over. */
+
+				app.get("/api/metrics/summary", async (c) => {
+					const windowDays = clampInt(c.req.query("days"), 7, 1, 90);
+					let client: MetaClient;
+					try {
+						client = await getMetaClient();
+					} catch (err) {
+						const msg = err instanceof Error ? err.message : String(err);
+						return c.json({ error: `Meta API unavailable: ${msg}` }, 502);
+					}
+
+					/* Build two contiguous windows: [now-2N .. now-N] (prior) and
+					 * [now-N .. now] (current). Sending explicit time_range
+					 * rather than date_preset because the prior period is not
+					 * one of Meta's preset shortcuts. */
+					const today = new Date();
+					const fmt = (d: Date): string => d.toISOString().slice(0, 10);
+					const current = {
+						since: fmt(new Date(today.getTime() - windowDays * 86_400_000)),
+						until: fmt(today),
+					};
+					const prior = {
+						since: fmt(new Date(today.getTime() - 2 * windowDays * 86_400_000)),
+						until: fmt(new Date(today.getTime() - windowDays * 86_400_000)),
+					};
+
+					const [curRes, priorRes] = await Promise.allSettled([
+						client.insights.query(cfg.metaAdAccountId, {
+							level: "account",
+							time_range: current,
+						}),
+						client.insights.query(cfg.metaAdAccountId, {
+							level: "account",
+							time_range: prior,
+						}),
+					]);
+
+					const summarize = (
+						res: PromiseSettledResult<Awaited<ReturnType<typeof client.insights.query>>>,
+					): { spend: number; roas: number; cpa: number; conversions: number } => {
+						if (res.status !== "fulfilled" || res.value.length === 0) {
+							return { spend: 0, roas: 0, cpa: 0, conversions: 0 };
+						}
+						/* level=account returns one row aggregating the account. */
+						const m = parseInsightsToMetrics(res.value[0]);
+						return {
+							spend: m.spend,
+							roas: m.roas,
+							cpa: m.cpa,
+							conversions: m.conversions,
+						};
+					};
+
+					const cur = summarize(curRes);
+					const prv = summarize(priorRes);
+
+					const pct = (now: number, before: number): number => {
+						if (before === 0) return 0;
+						return ((now - before) / before) * 100;
+					};
+
+					return c.json({
+						windowDays,
+						current: cur,
+						prior: prv,
+						delta: {
+							spendPct: pct(cur.spend, prv.spend),
+							roasPct: pct(cur.roas, prv.roas),
+							cpaPct: pct(cur.cpa, prv.cpa),
+							conversionsPct: pct(cur.conversions, prv.conversions),
+						},
+					});
+				});
+
+				app.get("/api/metrics/timeseries", async (c) => {
+					const days = clampInt(c.req.query("days"), 30, 1, 90);
+					let client: MetaClient;
+					try {
+						client = await getMetaClient();
+					} catch (err) {
+						const msg = err instanceof Error ? err.message : String(err);
+						return c.json({ error: `Meta API unavailable: ${msg}` }, 502);
+					}
+
+					const today = new Date();
+					const fmt = (d: Date): string => d.toISOString().slice(0, 10);
+					const time_range = {
+						since: fmt(new Date(today.getTime() - days * 86_400_000)),
+						until: fmt(today),
+					};
+
+					try {
+						/* time_increment=1 = daily rows. The API returns one row
+						 * per day per account at level=account. */
+						const rows = await client.insights.query(cfg.metaAdAccountId, {
+							level: "account",
+							time_range,
+							time_increment: 1,
+						});
+						const points = rows.map((r) => {
+							const m = parseInsightsToMetrics(r);
+							return {
+								date: r.date_start ?? "",
+								spend: m.spend,
+								roas: m.roas,
+								conversions: m.conversions,
+							};
+						});
+						return c.json({ days, points });
+					} catch (err) {
+						const msg = err instanceof Error ? err.message : String(err);
+						return c.json({ error: `Insights timeseries failed: ${msg}` }, 502);
+					}
+				});
+
 				app.get("/api/goals", async (c) => {
 					const goals = await goalRepo.listActive(cfg.metaAdAccountId);
 					return c.json(goals);

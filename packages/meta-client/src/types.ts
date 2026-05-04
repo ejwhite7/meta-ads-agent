@@ -802,6 +802,13 @@ export interface InsightsQueryParams {
 		operator: "EQUAL" | "NOT_EQUAL" | "GREATER_THAN" | "LESS_THAN" | "IN" | "NOT_IN";
 		value: string | string[];
 	}>;
+	/**
+	 * Time bucket size for the report. `1` = daily rows; `7` = weekly;
+	 * `monthly` = calendar months; `all_days` = single rolled-up row.
+	 * Required for the dashboard's spend/ROAS time-series charts —
+	 * without it the API returns one row per the entire window.
+	 */
+	time_increment?: number | "monthly" | "all_days";
 }
 
 /** Parameters for creating a new catalog. */
