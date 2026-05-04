@@ -1,7 +1,10 @@
-#!/usr/bin/env node
-
 /**
  * meta-ads-agent CLI entry point.
+ *
+ * The `#!/usr/bin/env node` shebang is injected at build time by tsup
+ * (see tsup.config.ts:banner) so the bundled `dist/index.js` is directly
+ * executable as the published `bin`. Including it in source would
+ * duplicate it in the bundle output.
  *
  * Registers all commands via commander.js and handles top-level error
  * handling, graceful shutdown on SIGINT/SIGTERM, and version display.
