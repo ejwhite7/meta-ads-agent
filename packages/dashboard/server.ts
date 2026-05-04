@@ -49,9 +49,12 @@ function constantTimeEqual(a: string, b: string): boolean {
 /**
  * Create the database connection using environment config or SQLite defaults.
  */
+/* DB_PATH lets ops override the SQLite location for the standalone
+ * dashboard server. Falls through to the shared default in the db factory
+ * (~/.meta-ads-agent/agent.db) when unset, matching what the daemon writes. */
 const dbConnection = createDatabase({
 	type: "sqlite",
-	sqlitePath: process.env.DB_PATH ?? "./data/agent.db",
+	sqlitePath: process.env.DB_PATH,
 });
 const db = dbConnection.db;
 
