@@ -141,47 +141,57 @@ function listAdAccounts(token: string): string[] {
  */
 interface TokenValidation {
 	readonly valid: boolean;
-	/** Trimmed stderr (preferred) or stdout from the underlying CLI. */
+	/** Identity returned on success (system user name + id from /me). */
+	readonly identity?: { id?: string; name?: string };
+	/** Underlying error string when invalid. */
 	readonly diagnostic: string;
 }
 
 /**
- * Validate the Meta access token by running `meta ads auth status` with
- * the just-collected token in the environment. Returns a structured
- * result so callers can render the real CLI error.
+ * Validate the Meta access token by calling the Graph API directly.
  *
- * Notes on detection:
- *   - Exit code 0 + parseable JSON -> valid
- *   - Exit code 0 but body contains "error" key -> sometimes the CLI
- *     prints the auth payload alongside an unrelated 'errors: 0' field;
- *     we now require the JSON to expose an explicit 'id' or 'name' field
- *     before declaring success.
+ * Why not use the `meta` Python CLI?
+ *   The published Python CLI (`pip install meta-ads`) does NOT expose
+ *   an `auth` subcommand on the version most users install -- only
+ *   resource subcommands (campaign, adset, ad, creative, etc.). There
+ *   is no `meta ads auth status` to probe. Calling the Graph API directly
+ *   eliminates the CLI version-drift problem and gives us a structured
+ *   error payload we can show the user.
+ *
+ *   Endpoint: GET https://graph.facebook.com/v21.0/me?access_token=...
+ *     - 200 OK + { id, name }                 -> valid
+ *     - any other status / { error: { ... } } -> invalid (with reason)
  */
-function validateToken(token: string): TokenValidation {
-	const env = { ...process.env, META_ACCESS_TOKEN: token };
-	const r = execCapture("meta ads auth status --output json --no-input", env);
+async function validateToken(token: string): Promise<TokenValidation> {
+	const url = `https://graph.facebook.com/v21.0/me?access_token=${encodeURIComponent(token)}&fields=id,name`;
 
-	if (!r.ok) {
-		const diag = r.stderr || r.stdout || `Exit code ${r.exitCode}`;
-		return { valid: false, diagnostic: diag };
-	}
-
-	/* Parse the JSON body and look for a positive identity signal. */
 	try {
-		const body = JSON.parse(r.stdout);
-		if (body && typeof body === "object" && (body.id || body.name)) {
-			return { valid: true, diagnostic: "" };
+		const res = await fetch(url, { method: "GET" });
+		const body = (await res.json().catch(() => null)) as {
+			id?: string;
+			name?: string;
+			error?: { message?: string; code?: number; type?: string };
+		} | null;
+
+		if (res.ok && body && (body.id || body.name)) {
+			return {
+				valid: true,
+				identity: { id: body.id, name: body.name },
+				diagnostic: "",
+			};
 		}
+
+		const err = body?.error;
+		const details = err
+			? `${err.type ?? "OAuthException"} (#${err.code ?? "?"}): ${err.message ?? "unknown"}`
+			: `HTTP ${res.status} ${res.statusText}`;
+		return { valid: false, diagnostic: details };
+	} catch (err: unknown) {
+		const message = err instanceof Error ? err.message : String(err);
 		return {
 			valid: false,
-			diagnostic: `CLI returned 0 but no identity (id/name) was found in the response. Body: ${r.stdout.slice(0, 400)}`,
+			diagnostic: `Network error reaching graph.facebook.com: ${message}`,
 		};
-	} catch {
-		/* Non-JSON success body is unusual but not necessarily a failure. */
-		if (r.stdout && !r.stdout.toLowerCase().includes("error")) {
-			return { valid: true, diagnostic: "" };
-		}
-		return { valid: false, diagnostic: r.stdout };
 	}
 }
 
@@ -359,15 +369,16 @@ export function registerInitCommand(program: Command): void {
 			}
 			success(`Configuration saved to ${CONFIG_PATH}`);
 
-			// Step 7: Validate token
+			// Step 7: Validate token via the Graph API
 			logger.info("Validating Meta access token...");
-			const validation = validateToken(metaAccessToken);
+			const validation = await validateToken(metaAccessToken);
 			if (validation.valid) {
-				success("Meta access token is valid.");
+				const who = validation.identity?.name ?? validation.identity?.id ?? "unknown";
+				success(`Meta access token is valid (authenticated as: ${who}).`);
 			} else {
 				error("Could not validate the Meta access token.");
 				console.error("");
-				console.error("  Underlying error from `meta ads auth status`:");
+				console.error("  Graph API response:");
 				for (const line of validation.diagnostic.split("\n").slice(0, 12)) {
 					console.error(`    ${line}`);
 				}
@@ -386,7 +397,7 @@ export function registerInitCommand(program: Command): void {
 				console.error("");
 				console.error("  Reproduce the failure manually:");
 				console.error(
-					"    META_ACCESS_TOKEN=<your-token> meta ads auth status --output json --no-input",
+					'    curl -s "https://graph.facebook.com/v21.0/me?access_token=<your-token>&fields=id,name"',
 				);
 				console.error("");
 				console.error(
