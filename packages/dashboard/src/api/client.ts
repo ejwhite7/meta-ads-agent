@@ -97,6 +97,70 @@ export interface AuditRecord {
 	 */
 	actualOutcome?: Record<string, unknown> | null;
 	performanceDelta?: Record<string, unknown> | null;
+
+	/**
+	 * Joined per-campaign goal context (PR #39). Set by the backend
+	 * when the row references a campaignId AND that campaign has an
+	 * active goal in `campaign_goals`. Lets the dashboard color the
+	 * Outcome Δ column against operator intent: a +0.3 ROAS delta
+	 * reads green under a roas-maximize goal but neutral under a
+	 * goal targeting a different KPI.
+	 *
+	 * Reflects the goal NOW — not goal-at-decision-time. "Is this
+	 * delta moving the way we want it to?" is the more useful
+	 * question for an operator scanning the log; the historical
+	 * point-in-time goal is recoverable from `campaign_goals.dbId`
+	 * if needed.
+	 */
+	goalContext?: {
+		primaryKpi: string;
+		primaryKpiDirection: "maximize" | "minimize";
+		primaryKpiTarget: number;
+	} | null;
+}
+
+/**
+ * Whether higher or lower delta values are favorable for a given
+ * metric. Combines two signals:
+ *
+ *   1. Per-campaign goal: if the goal's primaryKpi matches `metric`,
+ *      the goal's `primaryKpiDirection` wins (a goal optimizing
+ *      `frequency` toward minimize means +frequency Δ is bad).
+ *   2. Intuitive default: most metrics have an obvious favorable
+ *      direction regardless of goal (CPA down is good, ROAS up is
+ *      good, conversions up is good, spend down is good, etc.).
+ *
+ * If we don't know either way, returns `"neutral"` and the UI uses
+ * gray coloring — better than guessing wrong.
+ */
+export function favorableDirection(
+	metric: string,
+	goalContext: AuditRecord["goalContext"] | undefined,
+): "higher" | "lower" | "neutral" {
+	/* Goal explicitly steers this metric: trust the operator. */
+	if (goalContext && goalContext.primaryKpi === metric) {
+		return goalContext.primaryKpiDirection === "maximize" ? "higher" : "lower";
+	}
+	/* Intuitive defaults. Mirrors `core/goals/types.ts:PrimaryKpi`
+	 * direction comments — keep in sync if new KPIs are added. */
+	const intuitive: Record<string, "higher" | "lower" | "neutral"> = {
+		roas: "higher",
+		cpa: "lower",
+		cpl: "lower",
+		cpc: "lower",
+		cpm: "lower",
+		cpi: "lower",
+		cost_per_thruplay: "lower",
+		spend: "lower" /* runaway spend is generally bad; agent should scale deliberately */,
+		ctr: "higher",
+		thruplay_rate: "higher",
+		conversions: "higher",
+		reach: "higher",
+		frequency: "lower",
+		clicks: "neutral" /* without context, click volume up could be either way */,
+		impressions: "neutral",
+	};
+	return intuitive[metric] ?? "neutral";
 }
 
 /**

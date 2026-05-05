@@ -21,6 +21,7 @@ import {
 	decisionDelta,
 	decisionParams,
 	decisionStatus,
+	favorableDirection,
 	isGraded,
 } from "../api/client";
 import { useDecisions } from "../hooks/useDecisions";
@@ -161,7 +162,6 @@ function DecisionTableRow({
 	const paramsLabel = JSON.stringify(params).slice(0, 80);
 	const status = decisionStatus(decision);
 	const graded = isGraded(decision);
-	const delta = decisionDelta(decision);
 	const canExpand = reasoning.length > 120 || graded;
 
 	return (
@@ -207,7 +207,7 @@ function DecisionTableRow({
 					</div>
 				</td>
 				<td className="px-4 py-3 text-right">
-					<DeltaCell delta={delta} status={status} />
+					<DeltaCell decision={decision} status={status} />
 				</td>
 			</tr>
 			{expanded && graded && (
@@ -223,21 +223,26 @@ function DecisionTableRow({
 
 /**
  * Compact three-line delta display for the Outcome Δ column.
- * Shows ROAS, Spend, CPA — the three the operator scans for first.
- * Color is purely directional (positive = green, negative = red); no
- * attempt to interpret whether the direction is "good" because that
- * depends on the agent's intent for this specific decision.
+ *
+ * Shows ROAS / Spend / CPA — the three the operator scans first.
+ * Coloring is goal-aware (PR #39): each metric's favorable direction
+ * is determined by the row's `goalContext` (the active per-campaign
+ * goal at render time), falling back to intuitive defaults (ROAS up
+ * = good; CPA / spend down = good). The metric matching the
+ * campaign's primary KPI gets a small ★ marker so the operator can
+ * tell which line is the goal target.
  */
 function DeltaCell({
-	delta,
+	decision,
 	status,
 }: {
-	delta: ReturnType<typeof decisionDelta>;
+	decision: AuditRecord;
 	status: string;
 }): React.ReactElement {
 	if (status === "failed" || status === "pending" || status === "resolved") {
 		return <span className="text-xs text-gray-300">—</span>;
 	}
+	const delta = decisionDelta(decision);
 	if (!delta) {
 		return (
 			<span
@@ -248,42 +253,93 @@ function DeltaCell({
 			</span>
 		);
 	}
+	const goal = decision.goalContext ?? null;
+	const lines: Array<{
+		label: string;
+		metric: string;
+		value: number;
+		format: "signed" | "dollar";
+	}> = [];
+	if (delta.roas !== undefined && delta.roas !== 0) {
+		lines.push({ label: "ROAS", metric: "roas", value: delta.roas, format: "signed" });
+	}
+	if (delta.spend !== undefined && delta.spend !== 0) {
+		lines.push({ label: "Spend", metric: "spend", value: delta.spend, format: "dollar" });
+	}
+	if (delta.cpa !== undefined && delta.cpa !== 0) {
+		lines.push({ label: "CPA", metric: "cpa", value: delta.cpa, format: "dollar" });
+	}
+	if (lines.length === 0) {
+		return (
+			<div className="flex flex-col items-end gap-0.5 text-xs font-mono">
+				<span className="text-gray-300">no change</span>
+			</div>
+		);
+	}
 	return (
 		<div className="flex flex-col items-end gap-0.5 text-xs font-mono">
-			{delta.roas !== undefined && delta.roas !== 0 && (
-				<DeltaLine label="ROAS" value={delta.roas} format="signed" />
-			)}
-			{delta.spend !== undefined && delta.spend !== 0 && (
-				<DeltaLine label="Spend" value={delta.spend} format="dollar" />
-			)}
-			{delta.cpa !== undefined && delta.cpa !== 0 && (
-				<DeltaLine label="CPA" value={delta.cpa} format="dollar" />
-			)}
-			{(delta.roas === undefined || delta.roas === 0) &&
-				(delta.spend === undefined || delta.spend === 0) &&
-				(delta.cpa === undefined || delta.cpa === 0) && (
-					<span className="text-gray-300">no change</span>
-				)}
+			{lines.map((line) => (
+				<DeltaLine
+					key={line.metric}
+					label={line.label}
+					metric={line.metric}
+					value={line.value}
+					format={line.format}
+					goalContext={goal}
+					isPrimary={goal?.primaryKpi === line.metric}
+				/>
+			))}
 		</div>
 	);
 }
 
 function DeltaLine({
 	label,
+	metric,
 	value,
 	format,
+	goalContext,
+	isPrimary,
 }: {
 	label: string;
+	metric: string;
 	value: number;
 	format: "signed" | "dollar";
+	goalContext: AuditRecord["goalContext"];
+	isPrimary: boolean;
 }): React.ReactElement {
 	const sign = value > 0 ? "+" : "";
 	const formatted =
 		format === "dollar" ? `${sign}$${value.toFixed(2)}` : `${sign}${value.toFixed(2)}`;
-	const color = value > 0 ? "text-green-700" : value < 0 ? "text-red-700" : "text-gray-500";
+
+	/* Goal-aware coloring: a +0.3 ROAS Δ reads green under a
+	 * roas-maximize goal but neutral under a goal targeting a
+	 * different KPI. `favorableDirection` returns 'higher' | 'lower'
+	 * | 'neutral' — we color positive/negative against the favorable
+	 * direction, and gray when neutral or zero. */
+	const direction = favorableDirection(metric, goalContext);
+	let color: string;
+	if (value === 0 || direction === "neutral") {
+		color = "text-gray-500";
+	} else if (direction === "higher") {
+		color = value > 0 ? "text-green-700" : "text-red-700";
+	} else {
+		color = value < 0 ? "text-green-700" : "text-red-700";
+	}
+
+	const goalSet = goalContext && goalContext.primaryKpi === metric;
+	const tooltip = goalSet
+		? `Primary KPI for this campaign (${goalContext.primaryKpiDirection}). Target ${goalContext.primaryKpiTarget}.`
+		: direction === "neutral"
+			? "No favorable direction known for this metric."
+			: `${direction === "higher" ? "Higher" : "Lower"} is favorable (default; no per-campaign goal on this KPI).`;
+
 	return (
-		<span className={color}>
-			<span className="text-[10px] text-gray-400 mr-1">{label}</span>
+		<span className={color} title={tooltip}>
+			<span className="text-[10px] text-gray-400 mr-1">
+				{isPrimary && <span className="text-amber-500 mr-0.5">★</span>}
+				{label}
+			</span>
 			{formatted}
 		</span>
 	);
