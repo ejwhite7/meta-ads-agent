@@ -10,8 +10,9 @@
  * Tools:
  * - get_budget_status: Account-level spend pacing and burn rate analysis
  * - get_pacing_alerts: Campaign-level overpacing/underpacing detection
- * - set_budget: Set absolute daily budget with guardrail enforcement
- * - reallocate_budget: Atomic budget transfer between campaigns
+ * - set_budget: Set absolute daily budget (campaign or ad set) with guardrails
+ * - reallocate_budget: Atomic budget transfer between two campaigns
+ * - reallocate_adset_budget: Atomic budget transfer between two ad sets
  * - optimize_bids: Intelligent bid strategy adjustment
  * - project_spend: End-of-period spend and performance projections
  */
@@ -26,6 +27,8 @@ export { createSetBudgetTool } from "./set-budget.js";
 
 export { createReallocateBudgetTool } from "./reallocate-budget.js";
 
+export { createReallocateAdSetBudgetTool } from "./reallocate-adset-budget.js";
+
 export { createOptimizeBidsTool } from "./optimize-bids.js";
 
 export { createProjectSpendTool } from "./project-spend.js";
@@ -39,6 +42,7 @@ import { createGetBudgetStatusTool } from "./get-budget-status.js";
 import { createGetPacingAlertsTool } from "./get-pacing-alerts.js";
 import { createOptimizeBidsTool } from "./optimize-bids.js";
 import { createProjectSpendTool } from "./project-spend.js";
+import { createReallocateAdSetBudgetTool } from "./reallocate-adset-budget.js";
 import { createReallocateBudgetTool } from "./reallocate-budget.js";
 import { createSetBudgetTool } from "./set-budget.js";
 
@@ -73,6 +77,7 @@ export function createBudgetTools(
 		createGetPacingAlertsTool(metaClient),
 		createSetBudgetTool(metaClient),
 		createReallocateBudgetTool(metaClient),
+		createReallocateAdSetBudgetTool(metaClient),
 		createOptimizeBidsTool(metaClient, defaultGoals),
 		createProjectSpendTool(metaClient),
 	] as ReadonlyArray<Tool<TObject>>;

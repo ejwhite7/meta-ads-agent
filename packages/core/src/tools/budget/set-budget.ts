@@ -58,8 +58,11 @@ export function createSetBudgetTool(
 	return createTool({
 		name: "set_budget",
 		description:
-			"Sets a campaign or ad set daily budget to an absolute value. " +
-			"Enforces minimum floor, maximum ceiling, and approval thresholds.",
+			"Sets an absolute daily budget on either a campaign (campaignId only) " +
+			"or an ad set (pass adSetId to target the ad-set level \u2014 the " +
+			"surgical option for ABO campaigns where one ad set needs more or " +
+			"less than its siblings). Enforces minimum floor, maximum scale-factor " +
+			"ceiling, and approval thresholds.",
 		parameters: SetBudgetParams,
 
 		async execute(params: SetBudgetInput, context: ToolContext): Promise<ToolResult> {
