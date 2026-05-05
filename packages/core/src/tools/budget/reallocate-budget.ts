@@ -14,6 +14,7 @@ import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 import { resolveMetaClient } from "./_client.js";
+import { resolveEffectiveGuardrails } from "./_guardrails.js";
 
 /**
  * TypeBox schema for reallocate_budget tool parameters.
@@ -86,8 +87,20 @@ export function createReallocateBudgetTool(
 			const newSourceBudget = sourceBudget - amount;
 			const newDestBudget = destBudget + amount;
 
-			/* GUARDRAIL: Source campaign cannot drop below minimum daily budget */
-			if (newSourceBudget < guardrails.minDailyBudget) {
+			/* Resolve effective guardrails per side. The two campaigns may
+			 * have different per-campaign overrides on `campaign_goals`
+			 * (PR #23 schema, wired in PR #37): the source's min_daily_budget
+			 * gates the source-side floor; the destination's
+			 * max_budget_scale_factor gates the dest-side ceiling. Each side
+			 * is checked against ITS OWN campaign's overrides — a strict
+			 * source can't be loosened by a permissive destination. */
+			const sourceEff = await resolveEffectiveGuardrails(context, fromCampaignId, guardrails);
+			const destEff = await resolveEffectiveGuardrails(context, toCampaignId, guardrails);
+			const floorSrc = sourceEff.source.minDailyBudget === "campaign" ? " (per-campaign)" : "";
+			const scaleSrc = destEff.source.maxBudgetScaleFactor === "campaign" ? " (per-campaign)" : "";
+
+			/* GUARDRAIL: Source campaign cannot drop below its minimum daily budget */
+			if (newSourceBudget < sourceEff.minDailyBudget) {
 				return {
 					success: false,
 					data: {
@@ -96,22 +109,17 @@ export function createReallocateBudgetTool(
 						amount,
 						sourceBudget,
 						newSourceBudget,
-						minDailyBudget: guardrails.minDailyBudget,
+						minDailyBudget: sourceEff.minDailyBudget,
+						minDailyBudgetSource: sourceEff.source.minDailyBudget,
 						reason,
 					},
-					error:
-						`Reallocation rejected: reducing campaign ${fromCampaignId} ` +
-						`by $${amount.toFixed(2)} would leave $${newSourceBudget.toFixed(2)}, ` +
-						`below the minimum of $${guardrails.minDailyBudget.toFixed(2)}.`,
-					message:
-						`Reallocation rejected: reducing campaign ${fromCampaignId} ` +
-						`by $${amount.toFixed(2)} would leave $${newSourceBudget.toFixed(2)}, ` +
-						`below the minimum of $${guardrails.minDailyBudget.toFixed(2)}.`,
+					error: `Reallocation rejected: reducing campaign ${fromCampaignId} by $${amount.toFixed(2)} would leave $${newSourceBudget.toFixed(2)}, below the minimum of $${sourceEff.minDailyBudget.toFixed(2)}${floorSrc}.`,
+					message: `Reallocation rejected: reducing campaign ${fromCampaignId} by $${amount.toFixed(2)} would leave $${newSourceBudget.toFixed(2)}, below the minimum of $${sourceEff.minDailyBudget.toFixed(2)}${floorSrc}.`,
 				};
 			}
 
-			/* GUARDRAIL: Destination cannot exceed max budget scale factor */
-			const maxDestBudget = destBudget * guardrails.maxBudgetScaleFactor;
+			/* GUARDRAIL: Destination cannot exceed its max budget scale factor */
+			const maxDestBudget = destBudget * destEff.maxBudgetScaleFactor;
 			if (destBudget > 0 && newDestBudget > maxDestBudget) {
 				return {
 					success: false,
@@ -121,18 +129,13 @@ export function createReallocateBudgetTool(
 						amount,
 						destBudget,
 						newDestBudget,
-						maxBudgetScaleFactor: guardrails.maxBudgetScaleFactor,
+						maxBudgetScaleFactor: destEff.maxBudgetScaleFactor,
+						maxBudgetScaleFactorSource: destEff.source.maxBudgetScaleFactor,
 						maxAllowedBudget: Math.round(maxDestBudget * 100) / 100,
 						reason,
 					},
-					error:
-						`Reallocation rejected: increasing campaign ${toCampaignId} ` +
-						`to $${newDestBudget.toFixed(2)} exceeds the ${guardrails.maxBudgetScaleFactor}x ` +
-						`scale factor (max: $${maxDestBudget.toFixed(2)} from current $${destBudget.toFixed(2)}).`,
-					message:
-						`Reallocation rejected: increasing campaign ${toCampaignId} ` +
-						`to $${newDestBudget.toFixed(2)} exceeds the ${guardrails.maxBudgetScaleFactor}x ` +
-						`scale factor (max: $${maxDestBudget.toFixed(2)} from current $${destBudget.toFixed(2)}).`,
+					error: `Reallocation rejected: increasing campaign ${toCampaignId} to $${newDestBudget.toFixed(2)} exceeds the ${destEff.maxBudgetScaleFactor}x scale factor${scaleSrc} (max: $${maxDestBudget.toFixed(2)} from current $${destBudget.toFixed(2)}).`,
+					message: `Reallocation rejected: increasing campaign ${toCampaignId} to $${newDestBudget.toFixed(2)} exceeds the ${destEff.maxBudgetScaleFactor}x scale factor${scaleSrc} (max: $${maxDestBudget.toFixed(2)} from current $${destBudget.toFixed(2)}).`,
 				};
 			}
 

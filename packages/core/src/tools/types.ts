@@ -11,6 +11,7 @@ import type { MetaClient } from "@meta-ads-agent/meta-client";
 import type { Static, TObject } from "@sinclair/typebox";
 import type { AuditLogger } from "../audit/logger.js";
 import type { GuardrailConfig } from "../decisions/types.js";
+import type { CampaignGoalRepository } from "../goals/repository.js";
 import type { LLMProvider } from "../llm/types.js";
 import type { AgentGoal } from "../types.js";
 
@@ -58,8 +59,19 @@ export interface ToolContext {
 	/** Agent goals for performance evaluation. */
 	readonly goals?: AgentGoal;
 
-	/** Guardrail configuration for safety limits. */
+	/** Guardrail configuration for safety limits (account-wide defaults). */
 	readonly guardrails?: Partial<GuardrailConfig>;
+
+	/**
+	 * Per-campaign goal repository. When present, budget tools resolve
+	 * effective guardrails by merging per-campaign overrides
+	 * (`min_daily_budget`, `max_budget_scale_factor`,
+	 * `require_approval_above` on `campaign_goals`) on top of the
+	 * account-wide `guardrails` above. Without it, the budget tools
+	 * fall back to the account-wide values — same behavior as the
+	 * pre-PR-#37 codebase.
+	 */
+	readonly goalRepository?: CampaignGoalRepository;
 
 	/** Database connection for persistence (opaque -- backend-specific). */
 	readonly db?: unknown;
