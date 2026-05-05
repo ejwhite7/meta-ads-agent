@@ -8,6 +8,7 @@
 import type React from "react";
 import { ControlButtons } from "../components/agent/ControlButtons";
 import { DecisionCard } from "../components/agent/DecisionCard";
+import { DecisionImpactCard } from "../components/agent/DecisionImpactCard";
 import { StatusBadge } from "../components/agent/StatusBadge";
 import { MetricsGrid } from "../components/charts/MetricsGrid";
 import { ROASChart } from "../components/charts/ROASChart";
@@ -26,11 +27,17 @@ export function Overview(): React.ReactElement {
 	const { range } = useDateRange();
 	const iso = rangeToIso(range);
 	const { status, loading: statusLoading, error: statusError } = useAgentStatus();
+	/* Single fetch covers both the impact card (needs the full window
+	 * to compute aggregate counts) and the recent-decisions list
+	 * (slices to the most recent 5). 200 is enough headroom for any
+	 * reasonable window without cluttering the wire — we wouldn't
+	 * render more than that anywhere on this page. */
 	const { decisions, loading: decisionsLoading } = useDecisions({
-		limit: 5,
+		limit: 200,
 		startDate: iso.startDate,
 		endDate: iso.endDate,
 	});
+	const recentDecisions = decisions.slice(0, 5);
 
 	if (statusLoading) {
 		return (
@@ -64,6 +71,15 @@ export function Overview(): React.ReactElement {
 			{/* Key metrics */}
 			<MetricsGrid />
 
+			{/* Decision impact — how the agent's recent activity actually
+			 * moved performance vs operator intent. Goal-aware coloring
+			 * from PR #39 underpins the bucketing. */}
+			<DecisionImpactCard
+				decisions={decisions}
+				loading={decisionsLoading}
+				rangeLabel={formatRange(range)}
+			/>
+
 			{/* Charts row */}
 			<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 				<div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -81,11 +97,11 @@ export function Overview(): React.ReactElement {
 				<h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Decisions</h2>
 				{decisionsLoading ? (
 					<p className="text-gray-500 text-sm">Loading decisions...</p>
-				) : decisions.length === 0 ? (
+				) : recentDecisions.length === 0 ? (
 					<p className="text-gray-500 text-sm">No decisions recorded yet.</p>
 				) : (
 					<div className="space-y-3">
-						{decisions.map((decision) => (
+						{recentDecisions.map((decision) => (
 							<DecisionCard key={decision.id} decision={decision} />
 						))}
 					</div>
