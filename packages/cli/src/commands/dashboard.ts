@@ -36,6 +36,7 @@ import { error, section, success } from "../utils/display.js";
 import { handleError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { registerDashboardApiRoutes } from "./dashboard-api.js";
+import { TtlCache } from "./dashboard-cache.js";
 
 interface DashboardOptions {
 	port: string;
@@ -198,6 +199,11 @@ export function registerDashboardCommand(program: Command): void {
 
 				/* ---- API routes ---- */
 
+				/* In-process TTL cache for Meta-hitting routes. One per server
+				 * lifetime; cleared on process exit. The default 30s TTL is
+				 * configurable via META_ADS_AGENT_DASHBOARD_CACHE_TTL_MS. */
+				const cache = new TtlCache();
+
 				/* ---- API routes (extracted to dashboard-api.ts for testability) ---- */
 				registerDashboardApiRoutes(app, {
 					dbConn,
@@ -206,6 +212,7 @@ export function registerDashboardCommand(program: Command): void {
 					ipc,
 					cfg,
 					getMetaClient,
+					cache,
 				});
 
 				/* ---- HTML serve: inject the API key so the SPA can authenticate ----

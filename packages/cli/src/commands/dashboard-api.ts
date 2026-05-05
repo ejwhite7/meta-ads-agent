@@ -42,6 +42,7 @@ import type {
 import type { MetaClient } from "@meta-ads-agent/meta-client";
 import { desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import { type TtlCache, resolveCacheTtlMs } from "./dashboard-cache.js";
 
 /**
  * Minimal IPC-client shape the routes need. Kept structural rather
@@ -74,6 +75,15 @@ export interface DashboardApiDeps {
 	ipc: DashboardIpcClient;
 	cfg: AgentConfig;
 	getMetaClient: () => Promise<MetaClient>;
+	/**
+	 * In-process TTL cache for Meta-hitting routes. Each `/api/campaigns`
+	 * load fires six Marketing-API calls; without this cache, default
+	 * dashboard polling turns into 50+ Graph requests per minute. The
+	 * cache shares a single in-flight promise across concurrent callers
+	 * (no thundering-herd) and is invalidated on writes that affect the
+	 * downstream view (goal upsert/reset, configuration PUT).
+	 */
+	cache: TtlCache;
 }
 
 /**
@@ -93,7 +103,26 @@ function clampInt(raw: string | undefined, def: number, min: number, max: number
  * this call (the routes assume the request has been authorized).
  */
 export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): void {
-	const { dbConn, auditLogger, goalRepo, ipc, cfg, getMetaClient } = deps;
+	const { dbConn, auditLogger, goalRepo, ipc, cfg, getMetaClient, cache } = deps;
+	const cacheTtlMs = resolveCacheTtlMs();
+
+	/* Cache-key prefixes. The `invalidate(prefix)` API uses `:` as
+	 * a separator boundary, so e.g. invalidate('campaigns') clears
+	 * 'campaigns:act_123:last_7d' but not 'campaign-goals:*'. */
+	const K_CAMPAIGNS = "campaigns";
+	const K_GOALS_PENDING = "goals-pending";
+	const K_METRICS_SUMMARY = "metrics-summary";
+	const K_METRICS_TIMESERIES = "metrics-timeseries";
+	const K_ROAS_TARGET = "roas-target";
+
+	/* Bust every Meta-derived view that depends on per-campaign goals.
+	 * Called from POST/DELETE /api/goals so an operator's edit shows up
+	 * on the next refresh instead of waiting out the TTL. */
+	const invalidateGoalDerivedCaches = (): void => {
+		cache.invalidate(K_CAMPAIGNS);
+		cache.invalidate(K_GOALS_PENDING);
+		cache.invalidate(K_ROAS_TARGET);
+	};
 
 	app.get("/api/status", async (c) => {
 		const rows = await dbConn.db
@@ -208,23 +237,15 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 	app.get("/api/campaigns", async (c) => {
 		/* Live, hierarchical campaign view.
 		 *
-		 * Pre-this-PR this endpoint just dumped `campaign_snapshots`
-		 * rows verbatim, which:
-		 *   1. were empty until a snapshot tick had run (and on a
-		 *      `today`-preset, dry-run, or quiet-account daemon
-		 *      they often stayed empty forever);
-		 *   2. didn't include name, status, daily budget, objective,
-		 *      goal, ad sets, or ads — none of what the dashboard
-		 *      type `CampaignMetrics` actually expects.
+		 * Cached: response body keyed by (adAccountId, datePreset). The
+		 * underlying six concurrent Meta calls are by far the most expensive
+		 * operation in the dashboard — a 30s TTL coalesces refresh storms
+		 * and multi-tab traffic without making the data stale enough to
+		 * matter. Goal mutations bust this key explicitly.
 		 *
-		 * Now: pull the live hierarchy from Meta (campaigns +
-		 * adsets + ads) in parallel with the latest 7-day insights
-		 * at all three levels and the active goals for the account.
-		 * Merge into a single tree the dashboard can render.
-		 *
-		 * Falls back to the most-recent rows in the snapshot tables
-		 * if Meta is temporarily unavailable, so the dashboard keeps
-		 * showing the last-known data instead of going blank. */
+		 * Falls back to the most-recent rows in the snapshot tables if
+		 * Meta is temporarily unavailable, so the dashboard keeps showing
+		 * the last-known data instead of going blank. */
 		const datePreset = (process.env.META_ADS_AGENT_DATE_PRESET ?? "last_7d") as
 			| "today"
 			| "yesterday"
@@ -240,10 +261,38 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 		try {
 			client = await getMetaClient();
 		} catch (err) {
+			/* Don't cache token failures — the operator may fix the token
+			 * mid-TTL and we'd rather pay the retry cost than serve a stale
+			 * 502. The cache only wraps successful Meta-fetch paths. */
 			const message = err instanceof Error ? err.message : String(err);
 			return c.json({ error: `Meta API unavailable: ${message}`, campaigns: [] }, 502);
 		}
 
+		const cacheKey = `${K_CAMPAIGNS}:${cfg.metaAdAccountId}:${datePreset}`;
+		const response = await cache.get(cacheKey, cacheTtlMs, async () => {
+			return await buildCampaignsResponse(client, datePreset);
+		});
+		return c.json(response);
+	});
+
+	/* Heavy-lifting helper for /api/campaigns. Extracted into a function
+	 * so it can be cached as a unit — inlining made the cache.get()
+	 * closure span 100+ lines which hurts readability. */
+	type DatePreset =
+		| "today"
+		| "yesterday"
+		| "last_7d"
+		| "last_14d"
+		| "last_28d"
+		| "last_30d"
+		| "last_90d"
+		| "this_month"
+		| "last_month";
+	async function buildCampaignsResponse(
+		client: MetaClient,
+		datePreset: DatePreset,
+		// biome-ignore lint/suspicious/noExplicitAny: matches the route's response shape
+	): Promise<any[]> {
 		interface RawCampaign {
 			id: string;
 			name: string;
@@ -384,8 +433,8 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 			};
 		});
 
-		return c.json(response);
-	});
+		return response;
+	}
 
 	/* ---- Per-campaign goal management ----
 	 *
@@ -425,67 +474,69 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 			return c.json({ error: `Meta API unavailable: ${msg}` }, 502);
 		}
 
-		/* Build two contiguous windows: [now-2N .. now-N] (prior) and
-		 * [now-N .. now] (current). Sending explicit time_range
-		 * rather than date_preset because the prior period is not
-		 * one of Meta's preset shortcuts. */
-		const today = new Date();
-		const fmt = (d: Date): string => d.toISOString().slice(0, 10);
-		const current = {
-			since: fmt(new Date(today.getTime() - windowDays * 86_400_000)),
-			until: fmt(today),
-		};
-		const prior = {
-			since: fmt(new Date(today.getTime() - 2 * windowDays * 86_400_000)),
-			until: fmt(new Date(today.getTime() - windowDays * 86_400_000)),
-		};
-
-		const [curRes, priorRes] = await Promise.allSettled([
-			client.insights.query(cfg.metaAdAccountId, {
-				level: "account",
-				time_range: current,
-			}),
-			client.insights.query(cfg.metaAdAccountId, {
-				level: "account",
-				time_range: prior,
-			}),
-		]);
-
-		const summarize = (
-			res: PromiseSettledResult<Awaited<ReturnType<typeof client.insights.query>>>,
-		): { spend: number; roas: number; cpa: number; conversions: number } => {
-			if (res.status !== "fulfilled" || res.value.length === 0) {
-				return { spend: 0, roas: 0, cpa: 0, conversions: 0 };
-			}
-			/* level=account returns one row aggregating the account. */
-			const m = parseInsightsToMetrics(res.value[0]);
-			return {
-				spend: m.spend,
-				roas: m.roas,
-				cpa: m.cpa,
-				conversions: m.conversions,
+		const cacheKey = `${K_METRICS_SUMMARY}:${cfg.metaAdAccountId}:${windowDays}`;
+		const body = await cache.get(cacheKey, cacheTtlMs, async () => {
+			/* Build two contiguous windows: [now-2N .. now-N] (prior) and
+			 * [now-N .. now] (current). Sending explicit time_range
+			 * rather than date_preset because the prior period is not
+			 * one of Meta's preset shortcuts. */
+			const today = new Date();
+			const fmt = (d: Date): string => d.toISOString().slice(0, 10);
+			const current = {
+				since: fmt(new Date(today.getTime() - windowDays * 86_400_000)),
+				until: fmt(today),
 			};
-		};
+			const prior = {
+				since: fmt(new Date(today.getTime() - 2 * windowDays * 86_400_000)),
+				until: fmt(new Date(today.getTime() - windowDays * 86_400_000)),
+			};
 
-		const cur = summarize(curRes);
-		const prv = summarize(priorRes);
+			const [curRes, priorRes] = await Promise.allSettled([
+				client.insights.query(cfg.metaAdAccountId, {
+					level: "account",
+					time_range: current,
+				}),
+				client.insights.query(cfg.metaAdAccountId, {
+					level: "account",
+					time_range: prior,
+				}),
+			]);
 
-		const pct = (now: number, before: number): number => {
-			if (before === 0) return 0;
-			return ((now - before) / before) * 100;
-		};
+			const summarize = (
+				res: PromiseSettledResult<Awaited<ReturnType<typeof client.insights.query>>>,
+			): { spend: number; roas: number; cpa: number; conversions: number } => {
+				if (res.status !== "fulfilled" || res.value.length === 0) {
+					return { spend: 0, roas: 0, cpa: 0, conversions: 0 };
+				}
+				const m = parseInsightsToMetrics(res.value[0]);
+				return {
+					spend: m.spend,
+					roas: m.roas,
+					cpa: m.cpa,
+					conversions: m.conversions,
+				};
+			};
 
-		return c.json({
-			windowDays,
-			current: cur,
-			prior: prv,
-			delta: {
-				spendPct: pct(cur.spend, prv.spend),
-				roasPct: pct(cur.roas, prv.roas),
-				cpaPct: pct(cur.cpa, prv.cpa),
-				conversionsPct: pct(cur.conversions, prv.conversions),
-			},
+			const cur = summarize(curRes);
+			const prv = summarize(priorRes);
+			const pct = (now: number, before: number): number => {
+				if (before === 0) return 0;
+				return ((now - before) / before) * 100;
+			};
+
+			return {
+				windowDays,
+				current: cur,
+				prior: prv,
+				delta: {
+					spendPct: pct(cur.spend, prv.spend),
+					roasPct: pct(cur.roas, prv.roas),
+					cpaPct: pct(cur.cpa, prv.cpa),
+					conversionsPct: pct(cur.conversions, prv.conversions),
+				},
+			};
 		});
+		return c.json(body);
 	});
 
 	app.get("/api/metrics/timeseries", async (c) => {
@@ -498,31 +549,34 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 			return c.json({ error: `Meta API unavailable: ${msg}` }, 502);
 		}
 
-		const today = new Date();
-		const fmt = (d: Date): string => d.toISOString().slice(0, 10);
-		const time_range = {
-			since: fmt(new Date(today.getTime() - days * 86_400_000)),
-			until: fmt(today),
-		};
-
+		const cacheKey = `${K_METRICS_TIMESERIES}:${cfg.metaAdAccountId}:${days}`;
 		try {
-			/* time_increment=1 = daily rows. The API returns one row
-			 * per day per account at level=account. */
-			const rows = await client.insights.query(cfg.metaAdAccountId, {
-				level: "account",
-				time_range,
-				time_increment: 1,
-			});
-			const points = rows.map((r) => {
-				const m = parseInsightsToMetrics(r);
-				return {
-					date: r.date_start ?? "",
-					spend: m.spend,
-					roas: m.roas,
-					conversions: m.conversions,
+			const body = await cache.get(cacheKey, cacheTtlMs, async () => {
+				const today = new Date();
+				const fmt = (d: Date): string => d.toISOString().slice(0, 10);
+				const time_range = {
+					since: fmt(new Date(today.getTime() - days * 86_400_000)),
+					until: fmt(today),
 				};
+				/* time_increment=1 = daily rows. The API returns one row
+				 * per day per account at level=account. */
+				const rows = await client.insights.query(cfg.metaAdAccountId, {
+					level: "account",
+					time_range,
+					time_increment: 1,
+				});
+				const points = rows.map((r) => {
+					const m = parseInsightsToMetrics(r);
+					return {
+						date: r.date_start ?? "",
+						spend: m.spend,
+						roas: m.roas,
+						conversions: m.conversions,
+					};
+				});
+				return { days, points };
 			});
-			return c.json({ days, points });
+			return c.json(body);
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			return c.json({ error: `Insights timeseries failed: ${msg}` }, 502);
@@ -561,85 +615,84 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 			| "this_month"
 			| "last_month";
 
-		const goals = await goalRepo.listActive(cfg.metaAdAccountId);
-		const roasGoals = goals.filter(
-			(g) => g.primaryKpi === "roas" && g.primaryKpiDirection === "maximize",
-		);
+		const cacheKey = `${K_ROAS_TARGET}:${cfg.metaAdAccountId}:${datePreset}`;
+		const body = await cache.get(cacheKey, cacheTtlMs, async () => {
+			const goals = await goalRepo.listActive(cfg.metaAdAccountId);
+			const roasGoals = goals.filter(
+				(g) => g.primaryKpi === "roas" && g.primaryKpiDirection === "maximize",
+			);
 
-		/* Phase 1: try per-campaign weighted average. Only counts
-		 * campaigns whose primary KPI is roas — a campaign optimizing
-		 * for CPL doesn't have an opinion about the ROAS target line. */
-		if (roasGoals.length > 0) {
-			try {
-				const client = await getMetaClient();
-				const insights = await client.insights.query(cfg.metaAdAccountId, {
-					level: "campaign",
-					date_preset: datePreset,
-				});
-				const spendByCampaign = new Map<string, number>();
-				for (const i of insights) {
-					if (!i.campaign_id) continue;
-					const m = parseInsightsToMetrics(i);
-					spendByCampaign.set(i.campaign_id, m.spend);
-				}
-
-				let weightedSum = 0;
-				let totalWeight = 0;
-				let contributors = 0;
-				for (const g of roasGoals) {
-					const spend = spendByCampaign.get(g.campaignId) ?? 0;
-					if (spend <= 0) continue; /* zero-spend campaigns shouldn't anchor the line */
-					weightedSum += g.primaryKpiTarget * spend;
-					totalWeight += spend;
-					contributors++;
-				}
-
-				if (totalWeight > 0) {
-					return c.json({
-						target: weightedSum / totalWeight,
-						source: "campaigns",
-						contributors,
-						windowDays:
-							datePreset === "last_7d"
-								? 7
-								: datePreset === "last_30d"
-									? 30
-									: null /* let frontend handle non-numeric presets */,
+			/* Phase 1: try per-campaign weighted average. */
+			if (roasGoals.length > 0) {
+				try {
+					const client = await getMetaClient();
+					const insights = await client.insights.query(cfg.metaAdAccountId, {
+						level: "campaign",
+						date_preset: datePreset,
 					});
-				}
-				/* All roas-KPI campaigns had zero spend. Fall through to
-				 * the equal-weight average so we still surface a number
-				 * (better than no line at all on a fresh account). */
-				const avg = roasGoals.reduce((sum, g) => sum + g.primaryKpiTarget, 0) / roasGoals.length;
-				return c.json({
-					target: avg,
-					source: "campaigns",
-					contributors: roasGoals.length,
-					windowDays: null,
-				});
-			} catch {
-				/* MetaClient unavailable; fall through to agent_config. */
-			}
-		}
+					const spendByCampaign = new Map<string, number>();
+					for (const i of insights) {
+						if (!i.campaign_id) continue;
+						const m = parseInsightsToMetrics(i);
+						spendByCampaign.set(i.campaign_id, m.spend);
+					}
 
-		/* Phase 2: legacy account-wide AgentGoal from agent_config. */
-		const configRows = await dbConn.db
-			.select()
-			.from(agentConfig)
-			.where(eq(agentConfig.adAccountId, cfg.metaAdAccountId))
-			.orderBy(desc(agentConfig.createdAt))
-			.limit(1);
-		if (configRows.length > 0 && configRows[0].roasTarget > 0) {
-			return c.json({
-				target: configRows[0].roasTarget,
-				source: "agent_config",
+					let weightedSum = 0;
+					let totalWeight = 0;
+					let contributors = 0;
+					for (const g of roasGoals) {
+						const spend = spendByCampaign.get(g.campaignId) ?? 0;
+						if (spend <= 0) continue;
+						weightedSum += g.primaryKpiTarget * spend;
+						totalWeight += spend;
+						contributors++;
+					}
+
+					if (totalWeight > 0) {
+						return {
+							target: weightedSum / totalWeight,
+							source: "campaigns" as const,
+							contributors,
+							windowDays: datePreset === "last_7d" ? 7 : datePreset === "last_30d" ? 30 : null,
+						};
+					}
+					const avg = roasGoals.reduce((sum, g) => sum + g.primaryKpiTarget, 0) / roasGoals.length;
+					return {
+						target: avg,
+						source: "campaigns" as const,
+						contributors: roasGoals.length,
+						windowDays: null as number | null,
+					};
+				} catch {
+					/* MetaClient unavailable; fall through to agent_config. */
+				}
+			}
+
+			/* Phase 2: legacy account-wide AgentGoal from agent_config. */
+			const configRows = await dbConn.db
+				.select()
+				.from(agentConfig)
+				.where(eq(agentConfig.adAccountId, cfg.metaAdAccountId))
+				.orderBy(desc(agentConfig.createdAt))
+				.limit(1);
+			if (configRows.length > 0 && configRows[0].roasTarget > 0) {
+				return {
+					target: configRows[0].roasTarget,
+					source: "agent_config" as const,
+					contributors: 0,
+					windowDays: null as number | null,
+				};
+			}
+
+			/* Phase 3: nothing configured. */
+			return {
+				target: null,
+				source: null,
 				contributors: 0,
 				windowDays: null,
-			});
-		}
-
-		/* Phase 3: nothing configured. Frontend hides the line. */
-		return c.json({ target: null, source: null, contributors: 0, windowDays: null });
+			};
+		});
+		return c.json(body);
 	});
 
 	/* ---- Configuration page wiring ----
@@ -780,6 +833,12 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 		 * construction (daemon/manager.ts:start) and used to bind the
 		 * budget tools. We surface this in the response so the UI can
 		 * show a "restart daemon to apply" hint. */
+
+		/* Bust the roas-target cache: the agent_config row is the
+		 * fallback when no roas-KPI campaigns exist, so a configuration
+		 * change can move the line. */
+		cache.invalidate(K_ROAS_TARGET);
+
 		return c.json(
 			{
 				guardrails: {
@@ -807,9 +866,9 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 	});
 
 	app.get("/api/goals/pending", async (c) => {
-		/* Hits the live Marketing API. If the operator's token is
-		 * missing or invalid we surface a 502 with the diagnostic
-		 * rather than crashing the whole dashboard. */
+		/* Hits the live Marketing API. Token failure (e.g. expired)
+		 * surfaces a 502 with diagnostic and is NOT cached — we'd rather
+		 * pay the retry cost than serve a stale auth error. */
 		let client: MetaClient;
 		try {
 			client = await getMetaClient();
@@ -818,50 +877,57 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 			return c.json({ error: `Meta API unavailable: ${message}` }, 502);
 		}
 
-		interface MetaCampaignLite {
-			id: string;
-			name: string;
-			objective: string;
-			status: string;
-			daily_budget?: string;
-		}
-		let liveCampaigns: MetaCampaignLite[];
+		const cacheKey = `${K_GOALS_PENDING}:${cfg.metaAdAccountId}`;
 		try {
-			liveCampaigns = (await client.campaigns.list(cfg.metaAdAccountId)) as MetaCampaignLite[];
+			const pending = await cache.get(cacheKey, cacheTtlMs, async () => {
+				interface MetaCampaignLite {
+					id: string;
+					name: string;
+					objective: string;
+					status: string;
+					daily_budget?: string;
+				}
+				const liveCampaigns = (await client.campaigns.list(
+					cfg.metaAdAccountId,
+				)) as MetaCampaignLite[];
+
+				const active = await goalRepo.listActive(cfg.metaAdAccountId);
+				const byCampaign = new Map(active.map((g) => [g.campaignId, g]));
+
+				const result: PendingGuidance[] = [];
+				for (const camp of liveCampaigns) {
+					const goal = byCampaign.get(camp.id);
+					const dailyBudget = camp.daily_budget
+						? Number.parseInt(camp.daily_budget, 10) / 100
+						: null;
+					if (!goal) {
+						result.push({
+							campaignId: camp.id,
+							campaignName: camp.name,
+							currentObjective: camp.objective,
+							status: camp.status,
+							dailyBudget,
+							reason: "no_goal_configured",
+						});
+					} else if (goal.lastSeenObjective !== camp.objective) {
+						result.push({
+							campaignId: camp.id,
+							campaignName: camp.name,
+							currentObjective: camp.objective,
+							status: camp.status,
+							dailyBudget,
+							reason: "objective_changed",
+							previousObjective: goal.lastSeenObjective,
+						});
+					}
+				}
+				return result;
+			});
+			return c.json(pending);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			return c.json({ error: `Meta campaign list failed: ${message}` }, 502);
 		}
-
-		const active = await goalRepo.listActive(cfg.metaAdAccountId);
-		const byCampaign = new Map(active.map((g) => [g.campaignId, g]));
-
-		const pending: PendingGuidance[] = [];
-		for (const camp of liveCampaigns) {
-			const goal = byCampaign.get(camp.id);
-			const dailyBudget = camp.daily_budget ? Number.parseInt(camp.daily_budget, 10) / 100 : null;
-			if (!goal) {
-				pending.push({
-					campaignId: camp.id,
-					campaignName: camp.name,
-					currentObjective: camp.objective,
-					status: camp.status,
-					dailyBudget,
-					reason: "no_goal_configured",
-				});
-			} else if (goal.lastSeenObjective !== camp.objective) {
-				pending.push({
-					campaignId: camp.id,
-					campaignName: camp.name,
-					currentObjective: camp.objective,
-					status: camp.status,
-					dailyBudget,
-					reason: "objective_changed",
-					previousObjective: goal.lastSeenObjective,
-				});
-			}
-		}
-		return c.json(pending);
 	});
 
 	app.get("/api/goals/:campaignId", async (c) => {
@@ -1011,6 +1077,12 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 			...(notes ? { notes } : {}),
 		};
 		const saved: CampaignGoal = await goalRepo.upsert(input);
+		/* Bust every cached view that joins per-campaign goals so the
+		 * operator's edit is reflected on the next refresh, not after
+		 * the TTL expires. Goals affect /api/campaigns (joined goal),
+		 * /api/goals/pending (which campaigns lack a goal), and
+		 * /api/metrics/roas-target (spend-weighted target). */
+		invalidateGoalDerivedCaches();
 		return c.json(saved, 201);
 	});
 
@@ -1023,6 +1095,7 @@ export function registerDashboardApiRoutes(app: Hono, deps: DashboardApiDeps): v
 			"reset via dashboard",
 		);
 		if (!result) return c.json({ error: "No active goal to reset" }, 404);
+		invalidateGoalDerivedCaches();
 		return c.json({ success: true, deletedAt: result.deletedAt });
 	});
 

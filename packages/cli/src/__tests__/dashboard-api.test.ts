@@ -34,6 +34,7 @@ import {
 	type DashboardIpcClient,
 	registerDashboardApiRoutes,
 } from "../commands/dashboard-api.js";
+import { TtlCache } from "../commands/dashboard-cache.js";
 
 /* ---------- Test fixtures ---------- */
 
@@ -79,6 +80,9 @@ interface MetaClientStub {
 	insights: {
 		query: (id: string, params: unknown) => Promise<unknown[]>;
 	};
+	/** Per-method invocation counts, used by the TTL-cache tests to
+	 * assert that caching coalesces underlying Meta API calls. */
+	callCount: { campaignsList: number; adSetsList: number; insightsQuery: number };
 }
 
 interface StubData {
@@ -107,21 +111,30 @@ interface StubData {
 }
 
 function makeMetaClientStub(data: StubData = {}): MetaClientStub {
+	const callCount = { campaignsList: 0, adSetsList: 0, insightsQuery: 0 };
 	return {
+		callCount,
 		campaigns: {
-			list: async () => data.campaigns ?? [],
+			list: async () => {
+				callCount.campaignsList++;
+				return data.campaigns ?? [];
+			},
 			get: async (id: string) =>
 				data.getCampaign?.(id) ??
 				data.campaigns?.find((c) => c.id === id) ?? { id, name: "?", status: "ACTIVE" },
 		},
 		adSets: {
-			list: async () => data.adSets ?? [],
+			list: async () => {
+				callCount.adSetsList++;
+				return data.adSets ?? [];
+			},
 		},
 		ads: {
 			list: async () => data.ads ?? [],
 		},
 		insights: {
 			query: async (_id: string, params: unknown) => {
+				callCount.insightsQuery++;
 				const level = (params as { level?: string } | undefined)?.level;
 				const bucket = data.insights?.[level as keyof NonNullable<StubData["insights"]>];
 				return bucket ?? [];
@@ -138,6 +151,7 @@ function makeMetaClientStub(data: StubData = {}): MetaClientStub {
 function buildEnv(metaClientData: StubData = {}): {
 	app: Hono;
 	deps: DashboardApiDeps;
+	stub: MetaClientStub;
 	close: () => void;
 	seed: (fn: () => Promise<void>) => Promise<void>;
 } {
@@ -168,6 +182,10 @@ function buildEnv(metaClientData: StubData = {}): {
 		cfg: makeCfg(),
 		getMetaClient: async () =>
 			stub as unknown as Awaited<ReturnType<DashboardApiDeps["getMetaClient"]>>,
+		/* Fresh TtlCache per env so tests don't bleed cached data into
+		 * each other. Production uses a single cache for the dashboard
+		 * server's lifetime. */
+		cache: new TtlCache(),
 	};
 
 	const app = new Hono();
@@ -176,6 +194,7 @@ function buildEnv(metaClientData: StubData = {}): {
 	return {
 		app,
 		deps,
+		stub,
 		close: () => sqlite.close(),
 		seed: async (fn: () => Promise<void>) => {
 			await fn();
@@ -691,6 +710,128 @@ describe("dashboard API routes", () => {
 			expect(body.contributors).toBe(2);
 			/* (5*900 + 2*100) / 1000 = 4700/1000 = 4.7 */
 			expect(body.target).toBeCloseTo(4.7, 5);
+		});
+	});
+
+	describe("TTL cache", () => {
+		it("coalesces concurrent /api/campaigns calls into one underlying Meta fetch", async () => {
+			env.close();
+			env = buildEnv({
+				campaigns: [{ id: "c-1", name: "C1", status: "ACTIVE", objective: "OUTCOME_SALES" }],
+			});
+
+			/* Five simultaneous requests — the cache's promise-coalescing
+			 * should deliver one underlying campaigns.list call, not five. */
+			await Promise.all(Array.from({ length: 5 }, () => env.app.request("/api/campaigns")));
+			expect(env.stub.callCount.campaignsList).toBe(1);
+		});
+
+		it("serves the second /api/campaigns call from cache (no new Meta fetch)", async () => {
+			env.close();
+			env = buildEnv({
+				campaigns: [{ id: "c-1", name: "C1", status: "ACTIVE", objective: "OUTCOME_SALES" }],
+			});
+
+			await env.app.request("/api/campaigns");
+			await env.app.request("/api/campaigns");
+			expect(env.stub.callCount.campaignsList).toBe(1);
+		});
+
+		it("invalidates the campaigns cache when a goal is upserted", async () => {
+			env.close();
+			env = buildEnv({
+				campaigns: [{ id: "c-1", name: "C1", status: "ACTIVE", objective: "OUTCOME_SALES" }],
+			});
+
+			await env.app.request("/api/campaigns");
+			expect(env.stub.callCount.campaignsList).toBe(1);
+
+			await env.app.request("/api/goals", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					campaignId: "c-1",
+					primaryKpi: "roas",
+					primaryKpiTarget: 4,
+					primaryKpiDirection: "maximize",
+					lastSeenObjective: "OUTCOME_SALES",
+				}),
+			});
+
+			/* Cache was busted; next request hits Meta again. */
+			await env.app.request("/api/campaigns");
+			expect(env.stub.callCount.campaignsList).toBe(2);
+		});
+
+		it("invalidates roas-target cache when configuration is PUT", async () => {
+			/* First call: nothing configured, returns null. Cached. */
+			let res = await env.app.request("/api/metrics/roas-target");
+			let body = (await res.json()) as Record<string, unknown>;
+			expect(body.target).toBeNull();
+
+			/* Operator sets account-wide AgentGoal. */
+			await env.app.request("/api/configuration", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					roasTarget: 5,
+					cpaCap: 25,
+					dailyBudgetLimit: 500,
+					riskLevel: "moderate",
+				}),
+			});
+
+			/* Without invalidation we'd still see the cached null; verify
+			 * the new agent_config row is reflected. */
+			res = await env.app.request("/api/metrics/roas-target");
+			body = (await res.json()) as Record<string, unknown>;
+			expect(body.target).toBe(5);
+			expect(body.source).toBe("agent_config");
+		});
+
+		it("deleting a goal busts the campaigns cache", async () => {
+			env.close();
+			env = buildEnv({
+				campaigns: [{ id: "c-1", name: "C1", status: "ACTIVE", objective: "OUTCOME_SALES" }],
+			});
+
+			/* Seed an active goal so DELETE has something to soft-delete. */
+			await env.deps.goalRepo.upsert({
+				adAccountId: AD_ACCOUNT_ID,
+				campaignId: "c-1",
+				primaryKpi: "roas",
+				primaryKpiTarget: 4,
+				primaryKpiDirection: "maximize",
+				lastSeenObjective: "OUTCOME_SALES",
+				configuredBy: "test",
+			});
+
+			await env.app.request("/api/campaigns");
+			expect(env.stub.callCount.campaignsList).toBe(1);
+
+			const del = await env.app.request("/api/goals/c-1", { method: "DELETE" });
+			expect(del.status).toBe(200);
+
+			await env.app.request("/api/campaigns");
+			expect(env.stub.callCount.campaignsList).toBe(2);
+		});
+
+		it("different cache keys per (adAccount, datePreset) — different windows don't collide", async () => {
+			/* Ensure the cache key includes the env-driven datePreset. We
+			 * don't change presets at runtime, but the test asserts the key
+			 * structure prevents accidental cross-window collisions. */
+			env.close();
+			env = buildEnv({});
+
+			/* Two summary calls with different `days` should hit Meta twice. */
+			await env.app.request("/api/metrics/summary?days=7");
+			await env.app.request("/api/metrics/summary?days=30");
+			/* Each summary call fires 2 insights queries (current + prior). */
+			expect(env.stub.callCount.insightsQuery).toBe(4);
+
+			/* Same days again — should be cached. */
+			await env.app.request("/api/metrics/summary?days=7");
+			expect(env.stub.callCount.insightsQuery).toBe(4);
 		});
 	});
 });
