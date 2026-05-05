@@ -69,6 +69,67 @@ export interface AuditRecord {
 	resolved?: boolean;
 	resolvedByGoalDbId?: number;
 	resolvedAt?: string;
+
+	/**
+	 * Backfilled by the agent on a subsequent tick (see
+	 * `BackfillEngine` in @meta-ads-agent/core). Populated for
+	 * `success: true` rows when a future tick's metrics are available
+	 * for the same campaign. Lets the dashboard show “did the
+	 * decision actually move the needle?” instead of just “did the
+	 * tool call return success?”
+	 *
+	 * `actualOutcome` is the post-decision metric snapshot for the
+	 * targeted campaign:
+	 *   { campaignId, impressions, clicks, spend, conversions,
+	 *     roas, cpa, ctr, date }
+	 *
+	 * `performanceDelta` is `actualOutcome − baseline` where the
+	 * baseline is the most-recent campaign_snapshots row at or
+	 * before the decision's timestamp:
+	 *   { impressions, clicks, spend, conversions, roas, cpa, ctr,
+	 *     baselineRecordedAt }
+	 *
+	 * Both are stored as TEXT (JSON) in `agent_decisions` but
+	 * surfaced as objects by the drizzle adapter. NULL means “not
+	 * yet graded” — either the row is too recent (no future tick
+	 * has run) or the campaign had no metrics on the next tick
+	 * (paused, deleted, no delivery).
+	 */
+	actualOutcome?: Record<string, unknown> | null;
+	performanceDelta?: Record<string, unknown> | null;
+}
+
+/**
+ * Numeric delta fields the dashboard surfaces in the Decisions table.
+ * Mirrors the `diffSnapshots()` shape in core/audit/backfill.ts. All
+ * values are `current − baseline` (positive = increased over the
+ * decision window).
+ */
+export interface PerformanceDelta {
+	impressions?: number;
+	clicks?: number;
+	spend?: number;
+	conversions?: number;
+	roas?: number;
+	cpa?: number;
+	ctr?: number;
+	baselineRecordedAt?: string | null;
+}
+
+/**
+ * Type-narrowing helper. Returns the typed delta when present, else null.
+ */
+export function decisionDelta(d: AuditRecord): PerformanceDelta | null {
+	return (d.performanceDelta ?? null) as PerformanceDelta | null;
+}
+
+/**
+ * True when the decision has been graded by the backfill engine.
+ * “Graded” means a future tick recorded the actual outcome and the
+ * dashboard can show real numbers, not just expected outcome.
+ */
+export function isGraded(d: AuditRecord): boolean {
+	return d.success === true && d.actualOutcome != null;
 }
 
 /**
