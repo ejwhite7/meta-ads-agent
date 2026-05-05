@@ -24,30 +24,19 @@ import {
 	AuditLogger,
 	CampaignGoalRepository,
 	DrizzleAuditDatabase,
-	agentConfig,
-	agentSessions,
 	createDatabase,
-	inferDefaultKpi,
 	loadConfig,
-	parseInsightsToMetrics,
-} from "@meta-ads-agent/core";
-import type {
-	CampaignGoal,
-	CampaignGoalInput,
-	KpiDirection,
-	PendingGuidance,
-	PrimaryKpi,
-	SecondaryKpi,
 } from "@meta-ads-agent/core";
 import { MetaClient } from "@meta-ads-agent/meta-client";
 import type { Command } from "commander";
-import { desc, eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { IpcClient } from "../daemon/ipc.js";
 import { error, section, success } from "../utils/display.js";
 import { handleError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
+import { registerDashboardApiRoutes } from "./dashboard-api.js";
+import { TtlCache } from "./dashboard-cache.js";
 
 interface DashboardOptions {
 	port: string;

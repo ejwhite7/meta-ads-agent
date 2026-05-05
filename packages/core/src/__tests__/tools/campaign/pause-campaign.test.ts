@@ -100,10 +100,15 @@ describe("pauseCampaignTool", () => {
 	});
 
 	// -----------------------------------------------------------------------
-	// Audit logging
+	// Audit logging is the SESSION's responsibility, not the tool's
 	// -----------------------------------------------------------------------
 
-	it("logs pause action with reason to audit trail", async () => {
+	it("does NOT call auditLogger.logDecision itself (session does that)", async () => {
+		/* Pre-PR-#36 the tool called auditLogger.logDecision internally,
+		 * AND the session called it again after executor.execute(...). One
+		 * execution → two audit rows. The fix: the tool stays focused on
+		 * "do the thing"; the session's post-execute audit pass is the
+		 * single source of audit-log writes. */
 		const ctx = createMockContext();
 
 		await pauseCampaignTool.execute(
@@ -111,15 +116,32 @@ describe("pauseCampaignTool", () => {
 			ctx,
 		);
 
-		expect(ctx.auditLogger.logDecision).toHaveBeenCalledTimes(1);
-		const entry = (ctx.auditLogger.logDecision as ReturnType<typeof vi.fn>).mock.calls[0][0];
-		expect(entry.toolName).toBe("pause_campaign");
-		expect(entry.params).toEqual({
-			campaignId: "camp_001",
-			reason: "CPA exceeds cap by 40%",
-		});
-		expect(entry.expectedOutcome).toContain("Paused campaign camp_001");
-		expect(entry.reasoning).toContain("CPA exceeds cap by 40%");
+		expect(ctx.auditLogger.logDecision).not.toHaveBeenCalled();
+	});
+
+	// -----------------------------------------------------------------------
+	// Dry-run mode
+	// -----------------------------------------------------------------------
+
+	it("honors context.dryRun — returns success without calling update", async () => {
+		/* Pre-PR-#36 dryRun was ignored — the tool always called
+		 * MetaClient.campaigns.update. Now it short-circuits before any
+		 * mutation, returns dryRun:true in the result data, and the
+		 * session's audit pass still records the proposal. */
+		const ctx = createMockContext();
+		ctx.dryRun = true;
+
+		const result = await pauseCampaignTool.execute(
+			{ campaignId: "camp_001", reason: "Testing" },
+			ctx,
+		);
+
+		expect(result.success).toBe(true);
+		const data = result.data as { dryRun?: boolean; action?: string };
+		expect(data.dryRun).toBe(true);
+		expect(data.action).toBe("would_pause");
+		expect(result.message).toMatch(/^\[DRY RUN\]/);
+		expect(ctx.metaClient.campaigns.update).not.toHaveBeenCalled();
 	});
 
 	// -----------------------------------------------------------------------
