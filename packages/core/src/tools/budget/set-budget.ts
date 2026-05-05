@@ -13,6 +13,7 @@ import { DEFAULT_GUARDRAILS } from "../../decisions/types.js";
 import { createTool } from "../types.js";
 import type { ToolContext, ToolResult } from "../types.js";
 import { resolveMetaClient } from "./_client.js";
+import { resolveEffectiveGuardrails } from "./_guardrails.js";
 
 /**
  * TypeBox schema for set_budget tool parameters.
@@ -74,39 +75,54 @@ export function createSetBudgetTool(
 			if (resolved.error) return resolved.error;
 			const c = resolved.client;
 
-			/* Fetch current budget */
+			/* Fetch current budget. For ad-set updates also resolve the
+			 * parent campaign id — per-campaign goal overrides apply at the
+			 * campaign level even when the operation targets a child ad set
+			 * (campaign_goals has no ad-set granularity by design; see
+			 * DESIGN.md §2). */
 			let currentBudgetCents: number;
+			let effectiveCampaignId = campaignId;
 			if (adSetId) {
 				const adSet = await c.adSets.get(adSetId);
 				currentBudgetCents = Number.parseInt(adSet.daily_budget ?? "0", 10);
+				/* Trust the live ad-set's parent campaign over the LLM's
+				 * params (the LLM might have misremembered or fabricated). */
+				if (adSet.campaign_id) effectiveCampaignId = adSet.campaign_id;
 			} else {
 				const campaign = await c.campaigns.get(campaignId);
 				currentBudgetCents = Number.parseInt(campaign.daily_budget ?? "0", 10);
 			}
 			const currentBudget = currentBudgetCents / 100;
 
+			/* Resolve effective guardrails: account-wide base merged with
+			 * per-campaign overrides from `campaign_goals` (PR #23 schema,
+			 * wired here in PR #37). The factory-bound `guardrails` is the
+			 * base; per-campaign columns shadow each field independently
+			 * when non-null. */
+			const eff = await resolveEffectiveGuardrails(context, effectiveCampaignId, guardrails);
+			const floorSrc = eff.source.minDailyBudget === "campaign" ? " (per-campaign)" : "";
+			const scaleSrc = eff.source.maxBudgetScaleFactor === "campaign" ? " (per-campaign)" : "";
+			const approvalSrc = eff.source.requireApprovalAbove === "campaign" ? " (per-campaign)" : "";
+
 			/* GUARDRAIL: Enforce minimum daily budget floor */
-			if (dailyBudget < guardrails.minDailyBudget) {
+			if (dailyBudget < eff.minDailyBudget) {
 				return {
 					success: false,
 					data: {
 						targetId,
 						targetLevel,
 						requestedBudget: dailyBudget,
-						minDailyBudget: guardrails.minDailyBudget,
+						minDailyBudget: eff.minDailyBudget,
+						minDailyBudgetSource: eff.source.minDailyBudget,
 						reason,
 					},
-					error:
-						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
-						`is below the minimum daily budget of $${guardrails.minDailyBudget.toFixed(2)}.`,
-					message:
-						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
-						`is below the minimum daily budget of $${guardrails.minDailyBudget.toFixed(2)}.`,
+					error: `Budget change rejected: requested $${dailyBudget.toFixed(2)} is below the minimum daily budget of $${eff.minDailyBudget.toFixed(2)}${floorSrc}.`,
+					message: `Budget change rejected: requested $${dailyBudget.toFixed(2)} is below the minimum daily budget of $${eff.minDailyBudget.toFixed(2)}${floorSrc}.`,
 				};
 			}
 
 			/* GUARDRAIL: Enforce maximum budget scale factor ceiling */
-			const maxAllowedBudget = currentBudget * guardrails.maxBudgetScaleFactor;
+			const maxAllowedBudget = currentBudget * eff.maxBudgetScaleFactor;
 			if (currentBudget > 0 && dailyBudget > maxAllowedBudget) {
 				return {
 					success: false,
@@ -115,25 +131,18 @@ export function createSetBudgetTool(
 						targetLevel,
 						requestedBudget: dailyBudget,
 						currentBudget,
-						maxBudgetScaleFactor: guardrails.maxBudgetScaleFactor,
+						maxBudgetScaleFactor: eff.maxBudgetScaleFactor,
+						maxBudgetScaleFactorSource: eff.source.maxBudgetScaleFactor,
 						maxAllowedBudget: Math.round(maxAllowedBudget * 100) / 100,
 						reason,
 					},
-					error:
-						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
-						`exceeds the maximum ${guardrails.maxBudgetScaleFactor}x scale factor. ` +
-						`Current budget: $${currentBudget.toFixed(2)}, ` +
-						`max allowed: $${maxAllowedBudget.toFixed(2)}.`,
-					message:
-						`Budget change rejected: requested $${dailyBudget.toFixed(2)} ` +
-						`exceeds the maximum ${guardrails.maxBudgetScaleFactor}x scale factor. ` +
-						`Current budget: $${currentBudget.toFixed(2)}, ` +
-						`max allowed: $${maxAllowedBudget.toFixed(2)}.`,
+					error: `Budget change rejected: requested $${dailyBudget.toFixed(2)} exceeds the maximum ${eff.maxBudgetScaleFactor}x scale factor${scaleSrc}. Current budget: $${currentBudget.toFixed(2)}, max allowed: $${maxAllowedBudget.toFixed(2)}.`,
+					message: `Budget change rejected: requested $${dailyBudget.toFixed(2)} exceeds the maximum ${eff.maxBudgetScaleFactor}x scale factor${scaleSrc}. Current budget: $${currentBudget.toFixed(2)}, max allowed: $${maxAllowedBudget.toFixed(2)}.`,
 				};
 			}
 
 			/* GUARDRAIL: Require human approval for large changes */
-			if (dailyBudget > guardrails.requireApprovalAbove) {
+			if (dailyBudget > eff.requireApprovalAbove) {
 				return {
 					success: true,
 					data: {
@@ -142,10 +151,11 @@ export function createSetBudgetTool(
 						targetLevel,
 						currentBudget,
 						requestedBudget: dailyBudget,
-						requireApprovalAbove: guardrails.requireApprovalAbove,
+						requireApprovalAbove: eff.requireApprovalAbove,
+						requireApprovalAboveSource: eff.source.requireApprovalAbove,
 						reason,
 					},
-					message: `Budget change of $${dailyBudget.toFixed(2)} requires human approval (threshold: $${guardrails.requireApprovalAbove.toFixed(2)}). Change is pending.`,
+					message: `Budget change of $${dailyBudget.toFixed(2)} requires human approval (threshold: $${eff.requireApprovalAbove.toFixed(2)}${approvalSrc}). Change is pending.`,
 				};
 			}
 

@@ -366,7 +366,14 @@ export class AgentSession {
 				});
 			}
 
-			/* Execute approved actions via the tool executor */
+			/* Execute approved actions via the tool executor.
+			 *
+			 * `goalRepository` is forwarded so per-campaign-aware tools
+			 * (notably the budget tools post-PR-#37) can resolve
+			 * effective guardrails by merging per-campaign overrides
+			 * (min_daily_budget, max_budget_scale_factor,
+			 * require_approval_above on campaign_goals) on top of the
+			 * account-wide `guardrails`. */
 			const toolContext: ToolContext = {
 				sessionId: this.sessionId,
 				adAccountId: this.sessionConfig.config.metaAdAccountId,
@@ -376,6 +383,7 @@ export class AgentSession {
 				auditLogger: this.sessionConfig.auditLogger,
 				goals: this.sessionConfig.goals,
 				guardrails: this.sessionConfig.guardrails,
+				goalRepository: this.sessionConfig.goalRepository,
 			};
 
 			/* Persist any pending (human-approval-required) actions to the audit

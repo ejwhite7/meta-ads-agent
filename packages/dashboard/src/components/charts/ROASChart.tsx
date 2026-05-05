@@ -2,13 +2,11 @@
  * ROAS trend line chart.
  *
  * 30-day daily ROAS pulled from `GET /api/metrics/timeseries`. The
- * red dashed reference line shows the active ROAS target. Pre-PR #29
- * this chart used hardcoded placeholder data.
- *
- * The reference target is currently a fixed 4.0 — the per-campaign
- * goals system makes a single account-wide target somewhat arbitrary.
- * A future PR can compute this as the spend-weighted average of
- * campaigns whose primary KPI is `roas`.
+ * red dashed reference line shows the spend-weighted ROAS target
+ * across campaigns whose primary KPI is `roas`, with a fallback to
+ * the legacy account-wide `agent_config.roasTarget`. If neither is
+ * configured the line is hidden — better than lying with an arbitrary
+ * default.
  */
 
 import type React from "react";
@@ -22,14 +20,12 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
-import { useMetricsTimeseries } from "../../hooks/useMetrics";
+import { useMetricsTimeseries, useRoasTarget } from "../../hooks/useMetrics";
 
 interface ROASDataPoint {
 	date: string;
 	roas: number;
 }
-
-const ROAS_TARGET = 4.0;
 
 function formatDateLabel(iso: string): string {
 	const d = new Date(iso);
@@ -39,6 +35,7 @@ function formatDateLabel(iso: string): string {
 
 export function ROASChart(): React.ReactElement {
 	const { data, loading, error } = useMetricsTimeseries(30);
+	const { data: targetData } = useRoasTarget();
 
 	if (loading) {
 		return (
@@ -60,6 +57,19 @@ export function ROASChart(): React.ReactElement {
 		date: formatDateLabel(p.date),
 		roas: p.roas,
 	}));
+
+	/* Build the reference-line label so the operator can tell at a glance
+	 * whether they're looking at a per-campaign weighted target (most
+	 * meaningful) or the legacy account-wide fallback. */
+	const targetValue = targetData?.target ?? null;
+	const targetLabel =
+		targetValue !== null
+			? targetData?.source === "campaigns" && targetData?.contributors
+				? `Target: ${targetValue.toFixed(2)}x (avg of ${targetData.contributors} campaign${targetData.contributors === 1 ? "" : "s"})`
+				: targetData?.source === "agent_config"
+					? `Target: ${targetValue.toFixed(2)}x (account-wide)`
+					: `Target: ${targetValue.toFixed(2)}x`
+			: null;
 
 	return (
 		<ResponsiveContainer width="100%" height={300}>
@@ -85,17 +95,19 @@ export function ROASChart(): React.ReactElement {
 						boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
 					}}
 				/>
-				<ReferenceLine
-					y={ROAS_TARGET}
-					stroke="#ef4444"
-					strokeDasharray="5 5"
-					label={{
-						value: `Target: ${ROAS_TARGET}x`,
-						position: "right",
-						fill: "#ef4444",
-						fontSize: 12,
-					}}
-				/>
+				{targetValue !== null && targetLabel !== null && (
+					<ReferenceLine
+						y={targetValue}
+						stroke="#ef4444"
+						strokeDasharray="5 5"
+						label={{
+							value: targetLabel,
+							position: "right",
+							fill: "#ef4444",
+							fontSize: 12,
+						}}
+					/>
+				)}
 				<Line
 					type="monotone"
 					dataKey="roas"

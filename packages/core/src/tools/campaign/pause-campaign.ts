@@ -1,46 +1,45 @@
 /**
  * @module tools/campaign/pause-campaign
  *
- * Pauses a running Meta campaign. This is a protective action the agent
- * takes when a campaign is underperforming, overspending, or needs to be
- * stopped for any reason. Every pause is logged to the audit trail with
- * the agent's reasoning.
+ * Pauses a running Meta campaign. The agent reaches for this when a
+ * campaign is underperforming, overspending, or needs to be stopped
+ * for any reason. Every pause is recorded by the session's audit
+ * pass after the tool returns — see DESIGN.md / AGENTS.md.
  *
  * Part of the **Act** phase in the OODA cycle.
+ *
+ * Notes on dry-run and audit logging (PR #36):
+ *   - In `context.dryRun` mode, the tool returns success WITHOUT
+ *     calling MetaClient.campaigns.update. The audit log still
+ *     records the intended action via the session's post-execute
+ *     pass. Pre-PR-#36 the tool ignored dryRun and always mutated.
+ *   - The tool itself does NOT call `auditLogger.logDecision`. The
+ *     session loop logs every executor.execute(...) result, so
+ *     in-tool logging produced duplicate audit rows. Pre-PR-#36
+ *     this tool double-logged on every execution.
  */
 
 import { Type } from "@sinclair/typebox";
 import { type ToolResult, createTool } from "../types.js";
 
-/**
- * Tool: pause_campaign
- *
- * Pauses an active campaign by setting its status to PAUSED. Validates
- * that the campaign exists before attempting the pause. Records the
- * action and its reason in the audit log for traceability.
- */
 export const pauseCampaignTool = createTool({
 	name: "pause_campaign",
 	description:
-		"Pause an active Meta campaign. Validates the campaign exists, " +
-		"sets status to PAUSED, and logs the reason to the audit trail.",
+		"Pause an active Meta campaign. Validates the campaign exists, sets " +
+		"status to PAUSED. Honors dry-run mode (returns success without mutating).",
 	parameters: Type.Object({
 		campaignId: Type.String({
 			description: "Meta campaign ID to pause",
 		}),
 		reason: Type.String({
-			description: "Why the campaign is being paused — logged to the audit trail for traceability",
+			description: "Why the campaign is being paused — recorded in the audit trail",
 		}),
 	}),
 	async execute(params, context): Promise<ToolResult> {
 		const { campaignId, reason } = params;
 
 		try {
-			/* ------------------------------------------------------------------
-			 * Step 1: Validate the campaign exists
-			 * ----------------------------------------------------------------*/
 			const campaign = await context.metaClient.campaigns.get(campaignId);
-
 			if (!campaign) {
 				return {
 					success: false,
@@ -51,26 +50,10 @@ export const pauseCampaignTool = createTool({
 				};
 			}
 
-			/* ------------------------------------------------------------------
-			 * Step 2: Check if already paused — no-op with informational result
-			 * ----------------------------------------------------------------*/
+			/* Idempotency: already-paused is a no-op success. The session's
+			 * audit pass still records this so the operator sees the agent
+			 * considered the action. */
 			if (campaign.status === "PAUSED") {
-				if (context.auditLogger) {
-					await context.auditLogger.logDecision({
-						sessionId: context.sessionId,
-						adAccountId: context.adAccountId,
-						toolName: "pause_campaign",
-						params: { campaignId, reason },
-						reasoning: reason,
-						expectedOutcome: "already_paused",
-						score: 0,
-						riskLevel: "low",
-						success: true,
-						resultData: { previousStatus: "PAUSED", action: "none" },
-						errorMessage: null,
-					});
-				}
-
 				return {
 					success: true,
 					data: {
@@ -81,39 +64,32 @@ export const pauseCampaignTool = createTool({
 						action: "none",
 						reason,
 					},
-					message: `Campaign ${params.campaignId} paused successfully.`,
+					message: `Campaign ${campaignId} was already paused.`,
 				};
 			}
 
-			/* ------------------------------------------------------------------
-			 * Step 3: Pause the campaign
-			 * ----------------------------------------------------------------*/
+			/* Dry-run short-circuit: log intent only. Mirrors the pattern
+			 * used by set_budget. The session's audit pass records the
+			 * proposal regardless. */
+			if (context.dryRun) {
+				return {
+					success: true,
+					data: {
+						dryRun: true,
+						campaignId,
+						campaignName: campaign.name,
+						previousStatus: campaign.status,
+						newStatus: "PAUSED",
+						action: "would_pause",
+						reason,
+					},
+					message: `[DRY RUN] Would pause campaign ${campaignId} ('${campaign.name}'). Reason: ${reason}`,
+				};
+			}
+
 			const updated = await context.metaClient.campaigns.update(campaignId, {
 				status: "PAUSED",
 			});
-
-			/* ------------------------------------------------------------------
-			 * Step 4: Record in audit log
-			 * ----------------------------------------------------------------*/
-			if (context.auditLogger) {
-				await context.auditLogger.logDecision({
-					sessionId: context.sessionId,
-					adAccountId: context.adAccountId,
-					toolName: "pause_campaign",
-					params: { campaignId, reason },
-					reasoning: reason,
-					expectedOutcome: `Paused campaign ${campaignId} ('${campaign.name}')`,
-					score: 0,
-					riskLevel: "low",
-					success: true,
-					resultData: {
-						previousStatus: campaign.status,
-						newStatus: "PAUSED",
-						campaignName: campaign.name,
-					},
-					errorMessage: null,
-				});
-			}
 
 			return {
 				success: true,
@@ -125,11 +101,10 @@ export const pauseCampaignTool = createTool({
 					action: "paused",
 					reason,
 				},
-				message: `Campaign ${params.campaignId} paused successfully.`,
+				message: `Campaign ${campaignId} paused successfully.`,
 			};
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Unknown error pausing campaign";
-
 			return {
 				success: false,
 				data: null,
