@@ -7,6 +7,11 @@
  * within the same ad set.
  *
  * Part of the **Act** phase in the OODA cycle.
+ *
+ * Behavior parity with pause_campaign (see PR #36):
+ *   - Honors `context.dryRun` (returns success without mutating).
+ *   - Does NOT call auditLogger.logDecision itself; the session's
+ *     post-execute pass records every action exactly once.
  */
 
 import { Type } from "@sinclair/typebox";
@@ -16,12 +21,11 @@ export const pauseAdTool = createTool({
 	name: "pause_ad",
 	description:
 		"Pause an active Meta ad (creative level, leaf of the hierarchy). " +
-		"Validates the ad exists, sets status to PAUSED, and logs the " +
-		"reason to the audit trail.",
+		"Validates the ad exists, sets status to PAUSED. Honors dry-run mode.",
 	parameters: Type.Object({
 		adId: Type.String({ description: "Meta ad ID to pause" }),
 		reason: Type.String({
-			description: "Why the ad is being paused — logged to the audit trail for traceability",
+			description: "Why the ad is being paused — recorded in the audit trail",
 		}),
 	}),
 	async execute(params, context): Promise<ToolResult> {
@@ -40,21 +44,6 @@ export const pauseAdTool = createTool({
 			}
 
 			if (ad.status === "PAUSED") {
-				if (context.auditLogger) {
-					await context.auditLogger.logDecision({
-						sessionId: context.sessionId,
-						adAccountId: context.adAccountId,
-						toolName: "pause_ad",
-						params: { adId, reason },
-						reasoning: reason,
-						expectedOutcome: "already_paused",
-						score: 0,
-						riskLevel: "low",
-						success: true,
-						resultData: { previousStatus: "PAUSED", action: "none" },
-						errorMessage: null,
-					});
-				}
 				return {
 					success: true,
 					data: {
@@ -69,27 +58,23 @@ export const pauseAdTool = createTool({
 				};
 			}
 
-			const updated = await context.metaClient.ads.update(adId, { status: "PAUSED" });
-
-			if (context.auditLogger) {
-				await context.auditLogger.logDecision({
-					sessionId: context.sessionId,
-					adAccountId: context.adAccountId,
-					toolName: "pause_ad",
-					params: { adId, reason },
-					reasoning: reason,
-					expectedOutcome: `Paused ad ${adId} ('${ad.name}')`,
-					score: 0,
-					riskLevel: "low",
+			if (context.dryRun) {
+				return {
 					success: true,
-					resultData: {
+					data: {
+						dryRun: true,
+						adId,
+						adName: ad.name,
 						previousStatus: ad.status,
 						newStatus: "PAUSED",
-						adName: ad.name,
+						action: "would_pause",
+						reason,
 					},
-					errorMessage: null,
-				});
+					message: `[DRY RUN] Would pause ad ${adId} ('${ad.name}'). Reason: ${reason}`,
+				};
 			}
+
+			const updated = await context.metaClient.ads.update(adId, { status: "PAUSED" });
 
 			return {
 				success: true,

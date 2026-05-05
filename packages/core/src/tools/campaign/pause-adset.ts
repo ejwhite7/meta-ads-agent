@@ -1,13 +1,18 @@
 /**
  * @module tools/campaign/pause-adset
  *
- * Pauses a single Meta ad set. Same shape as `pause_campaign` but at
- * the next level of the hierarchy. The agent reaches for this when
- * one ad set within a campaign is dragging the campaign's KPI but
- * the campaign as a whole is on target — pausing the offending
- * ad set is the surgical intervention.
+ * Pauses a single Meta ad set. Same shape as `pause_campaign` but
+ * one level deeper in the hierarchy. The agent reaches for this when
+ * one ad set within a campaign is dragging the campaign's KPI but the
+ * campaign as a whole is on target — pausing the offending ad set is
+ * the surgical intervention.
  *
  * Part of the **Act** phase in the OODA cycle.
+ *
+ * Behavior parity with pause_campaign (see PR #36):
+ *   - Honors `context.dryRun` (returns success without mutating).
+ *   - Does NOT call auditLogger.logDecision itself; the session's
+ *     post-execute pass records every action exactly once.
  */
 
 import { Type } from "@sinclair/typebox";
@@ -16,15 +21,14 @@ import { type ToolResult, createTool } from "../types.js";
 export const pauseAdSetTool = createTool({
 	name: "pause_adset",
 	description:
-		"Pause an active Meta ad set (one level below campaign). Validates " +
-		"the ad set exists, sets status to PAUSED, and logs the reason to " +
-		"the audit trail.",
+		"Pause an active Meta ad set (one level below campaign). Validates the " +
+		"ad set exists, sets status to PAUSED. Honors dry-run mode.",
 	parameters: Type.Object({
 		adSetId: Type.String({
 			description: "Meta ad-set ID to pause",
 		}),
 		reason: Type.String({
-			description: "Why the ad set is being paused — logged to the audit trail for traceability",
+			description: "Why the ad set is being paused — recorded in the audit trail",
 		}),
 	}),
 	async execute(params, context): Promise<ToolResult> {
@@ -42,25 +46,7 @@ export const pauseAdSetTool = createTool({
 				};
 			}
 
-			/* Already-paused short-circuit. We still record the no-op in the
-			 * audit log so the operator sees that the agent considered the
-			 * action — silent skips are how decisions get lost. */
 			if (adSet.status === "PAUSED") {
-				if (context.auditLogger) {
-					await context.auditLogger.logDecision({
-						sessionId: context.sessionId,
-						adAccountId: context.adAccountId,
-						toolName: "pause_adset",
-						params: { adSetId, reason },
-						reasoning: reason,
-						expectedOutcome: "already_paused",
-						score: 0,
-						riskLevel: "low",
-						success: true,
-						resultData: { previousStatus: "PAUSED", action: "none" },
-						errorMessage: null,
-					});
-				}
 				return {
 					success: true,
 					data: {
@@ -75,29 +61,25 @@ export const pauseAdSetTool = createTool({
 				};
 			}
 
+			if (context.dryRun) {
+				return {
+					success: true,
+					data: {
+						dryRun: true,
+						adSetId,
+						adSetName: adSet.name,
+						previousStatus: adSet.status,
+						newStatus: "PAUSED",
+						action: "would_pause",
+						reason,
+					},
+					message: `[DRY RUN] Would pause ad set ${adSetId} ('${adSet.name}'). Reason: ${reason}`,
+				};
+			}
+
 			const updated = await context.metaClient.adSets.update(adSetId, {
 				status: "PAUSED",
 			});
-
-			if (context.auditLogger) {
-				await context.auditLogger.logDecision({
-					sessionId: context.sessionId,
-					adAccountId: context.adAccountId,
-					toolName: "pause_adset",
-					params: { adSetId, reason },
-					reasoning: reason,
-					expectedOutcome: `Paused ad set ${adSetId} ('${adSet.name}')`,
-					score: 0,
-					riskLevel: "low",
-					success: true,
-					resultData: {
-						previousStatus: adSet.status,
-						newStatus: "PAUSED",
-						adSetName: adSet.name,
-					},
-					errorMessage: null,
-				});
-			}
 
 			return {
 				success: true,
